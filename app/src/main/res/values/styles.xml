@@ -1,0 +1,9 @@
+<resources>
+    <style name="YantraTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#0B0906</item>
+        <item name="android:statusBarColor">#0B0906</item>
+    </style>
+</resources>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <path
+    d="M18 12h28c-5 9-8 17-8 25 0 8 6 13 12 18-7 4-12 9-12 17 0 11 8 22 20 34H18V12z"
+    fill="currentColor"/>
+  <path
+    d="M110 12H82c5 9 8 17 8 25 0 8-6 13-12 18 7 4 12 9 12 17 0 11-8 22-20 34h40V12z"
+    fill="currentColor"/>
+  <path
+    d="M52 22c6 8 9 16 9 25 0 7-3 13-9 18 5 5 8 11 8 19 0 10-4 20-12 30h32c-8-10-12-20-12-30 0-8 3-14 8-19-6-5-9-11-9-18 0-9 3-17 9-25H52z"
+    fill="currentColor"
+    fill-opacity="0.28"/>
+</svg>
