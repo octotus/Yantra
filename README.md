@@ -46,7 +46,7 @@ documentation/
 
 Yantra is currently scaffolded as a native Android app using Kotlin, Jetpack Compose, CMake, and vendored Swiss Ephemeris C sources.
 
-Swiss Ephemeris is vendored under `third_party/swisseph` and carries its upstream AGPL licensing terms. Keep this in mind before distributing binaries.
+Swiss Ephemeris is vendored under `third_party/swisseph`. Yantra uses Swiss Ephemeris under its AGPL option, so Yantra is distributed under the GNU Affero General Public License version 3.0.
 
 From Windows, open this repository in Android Studio or run:
 
@@ -67,6 +67,24 @@ The app packages the current-era Swiss Ephemeris files:
 - `app/src/main/assets/ephe/semo_18.se1`
 
 At startup, Yantra copies those assets into internal app storage and calls Swiss Ephemeris through JNI. The instrument state is computed from the device's current local time.
+
+## Android Widget
+
+The `widget` branch exposes Yantra as a home-screen widget. Android widgets cannot directly host the Compose instrument, so the widget reuses the same calendar engine and renders a compact yantra into a bitmap-backed `RemoteViews` layout. Tapping the widget opens the full app.
+
+## License
+
+Yantra is free software licensed under the GNU Affero General Public License version 3.0. The full license text is in `LICENSE`.
+
+Source code is available at:
+
+```text
+https://github.com/octotus/Yantra
+```
+
+Yantra includes Swiss Ephemeris C sources and ephemeris data under `third_party/swisseph`. Swiss Ephemeris is copyright (C) 1997-2021 Astrodienst AG, Switzerland, with Dieter Koch and Alois Treindl listed upstream as authors. Swiss Ephemeris is dual licensed by Astrodienst under the AGPL or the Swiss Ephemeris Professional License. Yantra uses the AGPL option.
+
+The names Astrodienst, Dieter Koch, and Alois Treindl are used only for copyright and license attribution and do not imply endorsement of Yantra. See `NOTICE`, `third_party/swisseph/LICENSE`, and `third_party/swisseph/agpl-3.0.txt` for the bundled licensing notices. The Android app package also includes copies under `app/src/main/assets/licenses`.
 
 ## Visual Direction
 

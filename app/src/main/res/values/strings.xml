@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Yantra</string>
+    <string name="yantra_widget_name">Yantra</string>
+    <string name="yantra_widget_description">Current Yantra instrument</string>
+</resources>

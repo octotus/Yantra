@@ -15,10 +15,18 @@ data class MonthSector(
     val arcDegrees: Double,
 )
 
+data class LagnaSector(
+    val index: Int,
+    val name: String,
+    val startFraction: Double,
+    val durationFraction: Double,
+)
+
 data class YantraState(
     val julianDay: Double,
     val solarLongitude: Double,
     val lunarLongitude: Double,
+    val ascendantLongitude: Double?,
     val solarAltitude: Double,
     val lunarAltitude: Double,
     val moonIllumination: Double,
@@ -29,6 +37,9 @@ data class YantraState(
     val lunarRashi: Segment,
     val month: MonthSector,
     val monthSectors: List<MonthSector>,
+    val lagnaSectors: List<LagnaSector>,
+    val lagnaRashi: Segment?,
+    val lagnaDayFraction: Double,
     val samvatsara: Segment,
     val paksha: String,
     val lunarMonth: String,

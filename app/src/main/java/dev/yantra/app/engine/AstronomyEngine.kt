@@ -17,6 +17,7 @@ data class CelestialState(
     val julianDay: Double,
     val solarLongitude: Double,
     val lunarLongitude: Double,
+    val ascendantLongitude: Double?,
     val longitudesAreSidereal: Boolean,
     val solarAltitude: Double,
     val lunarAltitude: Double,
@@ -26,11 +27,12 @@ data class CelestialState(
 data class EclipticLongitudes(
     val solarLongitude: Double,
     val lunarLongitude: Double,
+    val ascendantLongitude: Double?,
     val sidereal: Boolean,
 )
 
 interface LongitudeProvider {
-    fun longitudes(julianDayUt: Double): EclipticLongitudes?
+    fun longitudes(julianDayUt: Double, observer: Observer): EclipticLongitudes?
 }
 
 class AstronomyEngine(
@@ -46,7 +48,7 @@ class AstronomyEngine(
         )
 
         val approximateMoonLongitude = approximateMoonLongitude(d)
-        val precise = longitudeProvider?.longitudes(jd)
+        val precise = longitudeProvider?.longitudes(jd, observer)
         val sunLongitude = precise?.solarLongitude ?: approximateSunLongitude
         val moonLongitude = precise?.lunarLongitude ?: approximateMoonLongitude
         val solarAltitude = altitude(dateTime, observer, approximateSunLongitude, 0.0)
@@ -58,6 +60,7 @@ class AstronomyEngine(
             julianDay = jd,
             solarLongitude = sunLongitude,
             lunarLongitude = moonLongitude,
+            ascendantLongitude = precise?.ascendantLongitude,
             longitudesAreSidereal = precise?.sidereal ?: false,
             solarAltitude = solarAltitude,
             lunarAltitude = lunarAltitude,
