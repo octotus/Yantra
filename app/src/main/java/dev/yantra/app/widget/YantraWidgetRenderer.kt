@@ -165,20 +165,14 @@ object YantraWidgetRenderer {
         val paint = ringPaint(2.3f, DIM_GOLD)
         canvas.drawCircle(cx, cy, ringRadius, paint)
         val textPaint = textPaint(ringRadius * 0.19f, GOLD, Paint.Align.CENTER)
-        val sectors = state.lagnaSectors.ifEmpty {
-            CalendarCatalog.rashis.mapIndexed { index, rashi ->
-                dev.yantra.app.calendar.LagnaSector(index, rashi.name, index / 12.0, 1.0 / 12.0)
+        CalendarCatalog.rashis.forEachIndexed { index, rashi ->
+            val start = index * 30f
+            if (index == state.rashi.index) {
+                drawActiveArc(canvas, ringRadius, start, 30f, cx, cy)
             }
-        }
-        sectors.forEach { sector ->
-            val start = (sector.startFraction * 360.0).toFloat()
-            val sweep = (sector.durationFraction * 360.0).toFloat()
-            if (sector.index == state.rashi.index || sector.index == state.lagnaRashi?.index) {
-                drawActiveArc(canvas, ringRadius, start, sweep, cx, cy)
-            }
-            val point = polar(cx, cy, ringRadius, start + sweep / 2.0)
-            val label = CalendarCatalog.rashis[sector.index].name.take(2).uppercase()
-            textPaint.color = if (sector.index == state.rashi.index) IVORY else GOLD
+            val point = polar(cx, cy, ringRadius, start + 15.0)
+            val label = rashi.name.take(2).uppercase()
+            textPaint.color = if (index == state.rashi.index) IVORY else GOLD
             canvas.drawText(label, point.first, point.second + textPaint.textSize * 0.34f, textPaint)
         }
     }
@@ -207,9 +201,6 @@ object YantraWidgetRenderer {
     private fun drawHands(canvas: Canvas, state: YantraState, cx: Float, cy: Float, radius: Float) {
         val tithiAngle = state.tithi.index * 12.0
         drawHand(canvas, cx, cy, radius * 0.93f, tithiAngle, 6f, GOLD, 18f)
-
-        val lagnaAngle = state.lagnaDayFraction * 360.0
-        drawHand(canvas, cx, cy, radius * 0.39f, lagnaAngle, 5f, 0xFFFFD783.toInt(), 18f)
     }
 
     private fun drawHand(
