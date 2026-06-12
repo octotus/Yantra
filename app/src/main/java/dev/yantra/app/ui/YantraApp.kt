@@ -834,7 +834,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircumferenceLa
     yearLabel: String,
     gold: Color,
 ) {
-    val topRadius = bodyRadius + ringWidth * 0.48f
+    val topRadius = instrumentRadius * 1.15f
     val bottomRadius = bodyRadius + ringWidth * 1.72f + lotusRadiusForLayout(ringWidth) + instrumentRadius * 0.2592f
     val canvasCenter = this.center
     withTransform({
@@ -845,7 +845,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircumferenceLa
             radius = topRadius,
             centerAngle = -90f,
             sweep = 74f,
-            textSize = ringWidth * 0.58f,
+            textSize = ringWidth * 0.58f * 1.5f,
             color = gold.copy(alpha = 0.94f),
             bold = true,
         )
