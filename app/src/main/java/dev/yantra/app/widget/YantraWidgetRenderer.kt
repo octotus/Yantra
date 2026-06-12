@@ -36,7 +36,7 @@ object YantraWidgetRenderer {
         drawTimedBackground(canvas, state)
         drawWatchBody(canvas, centerX, centerY, radius)
         drawYantra(canvas, state, centerX, centerY, radius)
-        drawCurvedText(canvas, state.samvatsara.name, centerX, centerY, radius * 1.15f, true, SIZE * 0.04f * 1.5f)
+        drawCurvedText(canvas, state.samvatsara.name, centerX, centerY, radius * 1.20f, true, SIZE * 0.04f * 1.5f)
         drawCurvedText(canvas, dateFormatter.format(dateTime), centerX, centerY, radius + 58f, false, SIZE * 0.038f)
         drawMoon(canvas, state, centerX, centerY, radius * 0.19f)
         drawHands(canvas, state, centerX, centerY, radius)
