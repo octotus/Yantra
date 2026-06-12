@@ -11,6 +11,10 @@ import kotlin.math.floor
 class YantraCalendarEngine(
     private val astronomyEngine: AstronomyEngine = AstronomyEngine(),
 ) {
+    private companion object {
+        private const val SAMVATSARA_YEAR_OFFSET = 53
+    }
+
     private val monthResolutionCache = linkedMapOf<String, MonthResolution>()
 
     fun current(observer: Observer): YantraState = compute(ZonedDateTime.now(), observer)
@@ -33,9 +37,9 @@ class YantraCalendarEngine(
         val nakshatraIndex = floor(siderealMoon / (360.0 / 27.0)).toInt().coerceIn(0, 26)
         val solarRashiIndex = floor(siderealSun / 30.0).toInt().coerceIn(0, 11)
         val lunarRashiIndex = floor(siderealMoon / 30.0).toInt().coerceIn(0, 11)
-        val yogaIndex = floor(normalizeDegrees(siderealSun + siderealMoon) / (360.0 / 27.0)).toInt().coerceIn(0, 26)
-        val samvatsaraIndex = Math.floorMod(dateTime.year + 56, 60)
         val monthResolution = resolveLunarYearMonths(dateTime, observer, celestial.julianDay)
+        val yogaIndex = floor(normalizeDegrees(siderealSun + siderealMoon) / (360.0 / 27.0)).toInt().coerceIn(0, 26)
+        val samvatsaraIndex = resolveSamvatsaraIndex(monthResolution)
         val monthSectors = monthResolution.sectors
         val activeMonth = monthSectors[monthResolution.activeMonthIndex]
 
@@ -121,8 +125,19 @@ class YantraCalendarEngine(
                 arcDegrees = durations[index] / totalDays * 360.0,
             )
         }
-        return cacheMonthResolution(cacheKey, MonthResolution(sectors, labeled[activeIndex].monthIndex))
+        val yearStartDateTime = dateTimeAtJulianDay(dateTime, julianDay, labeled[yearStart].lunation.start)
+        return cacheMonthResolution(
+            cacheKey,
+            MonthResolution(
+                sectors = sectors,
+                activeMonthIndex = labeled[activeIndex].monthIndex,
+                lunisolarYearStartYear = yearStartDateTime.year,
+            )
+        )
     }
+
+    private fun resolveSamvatsaraIndex(monthResolution: MonthResolution): Int =
+        Math.floorMod(monthResolution.lunisolarYearStartYear + SAMVATSARA_YEAR_OFFSET, 60)
 
     private fun cacheMonthResolution(key: String, resolution: MonthResolution): MonthResolution {
         if (monthResolutionCache.size > 16) monthResolutionCache.clear()
@@ -266,7 +281,8 @@ class YantraCalendarEngine(
         val sectors = CalendarCatalog.lunarMonths.map { month ->
             month.copy(arcDegrees = month.durationDays / totalDays * 360.0)
         }
-        return MonthResolution(sectors, monthIndex)
+        val lunisolarYearStartYear = if (monthIndex >= 9) dateTime.year - 1 else dateTime.year
+        return MonthResolution(sectors, monthIndex, lunisolarYearStartYear)
     }
 
     private fun lahiriAyanamsaApprox(julianDay: Double): Double {
@@ -277,6 +293,7 @@ class YantraCalendarEngine(
     private data class MonthResolution(
         val sectors: List<MonthSector>,
         val activeMonthIndex: Int,
+        val lunisolarYearStartYear: Int,
     )
 
     private data class Lunation(
