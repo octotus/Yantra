@@ -1,19 +1,34 @@
 package dev.yantra.app.ui
 
 import android.content.Context
+import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,13 +50,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import dev.yantra.app.R
 import dev.yantra.app.calendar.CalendarCatalog
@@ -54,6 +73,9 @@ import dev.yantra.app.engine.EphemerisAssets
 import dev.yantra.app.engine.Observer
 import dev.yantra.app.engine.SwissEphemeris
 import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import java.time.YearMonth
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -89,9 +111,14 @@ fun YantraApp() {
     val festival = remember(state, previousState) { FestivalCatalog.match(state, previousState) }
     var specialDays by remember(context) { mutableStateOf(loadSpecialDays(context)) }
     val specialDay = remember(state, specialDays) { specialDays.firstOrNull { it.matches(state) } }
-    val observanceLabel = specialDay?.name ?: festival?.name
+    var userEvents by remember(context) { mutableStateOf(loadUserEvents(context)) }
+    var logoPath by remember(context) { mutableStateOf(loadUserLogoPath(context)) }
+    val userLogo = remember(logoPath) { logoPath?.let(::loadLogoBitmap) }
+    val userEvent = remember(state, userEvents) { userEvents.firstOrNull { it.matches(state) } }
+    val observanceLabel = specialDay?.name ?: userEvent?.name ?: festival?.name
     var lunarEmphasis by remember { mutableStateOf(false) }
     var datePickerOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(false) }
     var specialDayEditorOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
@@ -161,6 +188,8 @@ fun YantraApp() {
                         observanceLabel = observanceLabel,
                         showFestivalLabel = festivalLabelVisible,
                         annotation = annotation,
+                        userLogo = userLogo,
+                        userLogoLit = userLogo != null && userEvent != null,
                         now = now,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -168,6 +197,7 @@ fun YantraApp() {
                         onMoonTap = { lunarEmphasis = true },
                         onDateTap = { datePickerOpen = true },
                         onDateLongPress = { specialDayEditorOpen = true },
+                        onSettingsTap = { settingsOpen = true },
                         onFestivalTap = {
                             if (observanceLabel != null) {
                                 festivalLabelVisible = true
@@ -187,9 +217,35 @@ fun YantraApp() {
                             },
                         )
                     }
+                    if (settingsOpen) {
+                        YantraSettingsScreen(
+                            logoPath = logoPath,
+                            events = userEvents,
+                            specialDays = specialDays,
+                            onDismiss = { settingsOpen = false },
+                            onLogoSelected = { uri ->
+                                val path = saveUserLogo(context, uri)
+                                saveUserLogoPath(context, path)
+                                logoPath = path
+                            },
+                            onLogoCleared = {
+                                clearUserLogo(context)
+                                logoPath = null
+                            },
+                            onEventsChanged = { next ->
+                                saveUserEvents(context, next)
+                                userEvents = next
+                            },
+                            onSpecialDaysChanged = { next ->
+                                saveSpecialDays(context, next)
+                                specialDays = next
+                            },
+                        )
+                    }
                     if (specialDayEditorOpen) {
                         SpecialDayEditor(
                             state = state,
+                            savedDays = specialDays.filter { it.matches(state) },
                             onDismiss = { specialDayEditorOpen = false },
                             onSave = { name ->
                                 val next = (specialDays + state.toSpecialDay(name))
@@ -198,6 +254,12 @@ fun YantraApp() {
                                 specialDays = next
                                 specialDayEditorOpen = false
                                 festivalLabelVisible = true
+                            },
+                            onDelete = { day ->
+                                val next = specialDays.filterNot { it == day }
+                                saveSpecialDays(context, next)
+                                specialDays = next
+                                specialDayEditorOpen = false
                             },
                         )
                     }
@@ -210,21 +272,41 @@ fun YantraApp() {
 @Composable
 private fun SpecialDayEditor(
     state: YantraState,
+    savedDays: List<SpecialDay>,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
+    onDelete: (SpecialDay) -> Unit,
 ) {
     var name by remember(state) { mutableStateOf("") }
+    var selectedSavedIndex by remember(state, savedDays) { mutableStateOf(0) }
+    val selectedSavedDay = savedDays.getOrNull(selectedSavedIndex.coerceAtMost((savedDays.size - 1).coerceAtLeast(0)))
     val tithiNumber = (state.tithi.index % 15) + 1
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add special day") },
+        title = { Text("Special day") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${state.lunarMonth} ${state.paksha} $tithiNumber")
+                if (selectedSavedDay != null) {
+                    Text("Saved: ${selectedSavedDay.name}")
+                    if (savedDays.size > 1) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { selectedSavedIndex = (selectedSavedIndex - 1).floorMod(savedDays.size) }) {
+                                Text("Previous")
+                            }
+                            TextButton(onClick = { selectedSavedIndex = (selectedSavedIndex + 1).floorMod(savedDays.size) }) {
+                                Text("Next")
+                            }
+                        }
+                    }
+                    TextButton(onClick = { onDelete(selectedSavedDay) }) {
+                        Text("Delete saved")
+                    }
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text("New name") },
                     singleLine = true,
                 )
             }
@@ -379,6 +461,520 @@ private fun saveSpecialDays(context: Context, days: List<SpecialDay>) {
         .apply()
 }
 
+@Composable
+private fun YantraSettingsScreen(
+    logoPath: String?,
+    events: List<UserEvent>,
+    specialDays: List<SpecialDay>,
+    onDismiss: () -> Unit,
+    onLogoSelected: (Uri) -> Unit,
+    onLogoCleared: () -> Unit,
+    onEventsChanged: (List<UserEvent>) -> Unit,
+    onSpecialDaysChanged: (List<SpecialDay>) -> Unit,
+) {
+    val context = LocalContext.current
+    val logoBitmap = remember(logoPath) { logoPath?.let(::loadLogoBitmap) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onLogoSelected(uri)
+    }
+    var selectedIndex by remember(events) { mutableStateOf(-1) }
+    var draft by remember(events, selectedIndex) {
+        mutableStateOf((events.getOrNull(selectedIndex) ?: UserEvent()).toDraft())
+    }
+    var importText by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var savedDaysOpen by remember { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    val ivory = Color(0xFFFFE8B0)
+    val gold = Color(0xFFE8CA8B)
+    val brightGold = Color(0xFFFFE2A3)
+    val copper = Color(0xFF8E5424)
+    val deepCopper = Color(0xFF211007)
+    val ink = Color(0xFF050302)
+    val textButtonColors = ButtonDefaults.textButtonColors(contentColor = brightGold)
+    val buttonColors = ButtonDefaults.buttonColors(
+        containerColor = copper,
+        contentColor = ivory,
+    )
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = ivory,
+        unfocusedTextColor = ivory,
+        focusedLabelColor = brightGold,
+        unfocusedLabelColor = gold.copy(alpha = 0.82f),
+        cursorColor = brightGold,
+        focusedBorderColor = brightGold,
+        unfocusedBorderColor = gold.copy(alpha = 0.58f),
+        focusedContainerColor = ink.copy(alpha = 0.72f),
+        unfocusedContainerColor = deepCopper.copy(alpha = 0.58f),
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    0.0f to Color(0xFF3A1D0C),
+                    0.48f to Color(0xFF160B05),
+                    1.0f to Color(0xFF050302),
+                )
+            )
+            .padding(18.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("SETTINGS", color = ivory, style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = onDismiss, colors = textButtonColors) { Text("Close") }
+            }
+
+            Text("About", color = gold, style = MaterialTheme.typography.titleMedium)
+            Text("Yantra is free software licensed under AGPL-3.0.", color = ivory.copy(alpha = 0.86f))
+            Button(
+                onClick = { openRepository(context) },
+                colors = buttonColors,
+            ) {
+                Text("Open Source Repository")
+            }
+
+            Button(
+                onClick = { savedDaysOpen = !savedDaysOpen },
+                colors = buttonColors,
+            ) {
+                Text(if (savedDaysOpen) "Hide Your Days" else "See Your Days")
+            }
+            if (savedDaysOpen) {
+                SavedDaysList(
+                    events = events,
+                    specialDays = specialDays,
+                    textColor = ivory,
+                    accentColor = brightGold,
+                    textButtonColors = textButtonColors,
+                    onEventsChanged = onEventsChanged,
+                    onSpecialDaysChanged = onSpecialDaysChanged,
+                    onMessage = { message = it },
+                )
+            }
+
+            Text("Logo", color = gold, style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (logoBitmap != null) {
+                    Image(
+                        bitmap = logoBitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .width(72.dp)
+                            .height(72.dp),
+                    )
+                }
+                Button(onClick = { picker.launch("image/*") }, colors = buttonColors) { Text(if (logoPath == null) "Add Logo" else "Change Logo") }
+                if (logoPath != null) {
+                    TextButton(onClick = onLogoCleared, colors = textButtonColors) { Text("Remove") }
+                }
+            }
+
+            Text("User Events", color = gold, style = MaterialTheme.typography.titleMedium)
+            if (events.isNotEmpty() && selectedIndex !in events.indices) {
+                TextButton(
+                    onClick = { selectedIndex = 0 },
+                    colors = textButtonColors,
+                ) {
+                    Text("Edit Saved Event")
+                }
+            }
+            if (selectedIndex in events.indices) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (events.size > 1) {
+                        TextButton(onClick = { selectedIndex = (selectedIndex - 1).floorMod(events.size) }, colors = textButtonColors) { Text("Previous") }
+                    }
+                    Text("${selectedIndex + 1} / ${events.size}", color = ivory)
+                    if (events.size > 1) {
+                        TextButton(onClick = { selectedIndex = (selectedIndex + 1).floorMod(events.size) }, colors = textButtonColors) { Text("Next") }
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = draft.name,
+                onValueChange = { draft = draft.copy(name = it) },
+                label = { Text("Event name") },
+                singleLine = true,
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            CycleCriterion("Maasa", draft.month, listOf(null) + CalendarCatalog.lunarMonths.map { it.name }) {
+                draft = draft.copy(month = it)
+            }
+            CycleCriterion("Paksha", draft.paksha, listOf(null, "Shukla", "Krishna")) {
+                draft = draft.copy(paksha = it)
+            }
+            CycleCriterion("Tithi", draft.tithiIndex?.let { CalendarCatalog.tithis[it].name }, listOf(null) + CalendarCatalog.tithis.map { it.name }) { value ->
+                draft = draft.copy(tithiIndex = value?.let { CalendarCatalog.tithis.indexOfFirst { tithi -> tithi.name == it } }?.takeIf { it >= 0 })
+            }
+            CycleCriterion("Nakshatra", draft.nakshatra, listOf(null) + CalendarCatalog.nakshatras.map { it.name }) {
+                draft = draft.copy(nakshatra = it)
+            }
+            CycleCriterion("Rashi", draft.rashi, listOf(null) + CalendarCatalog.rashis.map { it.name }) {
+                draft = draft.copy(rashi = it)
+            }
+            Text("Select at least two criteria.", color = ivory.copy(alpha = 0.72f))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val event = draft.toEvent()
+                        if (event == null) {
+                            message = "Name and at least two criteria are required."
+                            return@Button
+                        }
+                        val next = events.toMutableList()
+                        if (selectedIndex in next.indices) {
+                            next[selectedIndex] = event
+                        } else {
+                            next += event
+                            selectedIndex = next.lastIndex
+                        }
+                        onEventsChanged(next)
+                        message = "Event saved."
+                    },
+                    colors = buttonColors,
+                ) {
+                    Text(if (selectedIndex in events.indices) "Save Event" else "Add Event")
+                }
+                TextButton(
+                    onClick = {
+                        selectedIndex = -1
+                        draft = UserEvent().toDraft()
+                    },
+                    colors = textButtonColors,
+                ) {
+                    Text("New")
+                }
+                if (selectedIndex in events.indices) {
+                    TextButton(
+                        onClick = {
+                            val next = events.toMutableList().also { it.removeAt(selectedIndex) }
+                            onEventsChanged(next)
+                            selectedIndex = if (next.isEmpty()) -1 else selectedIndex.coerceAtMost(next.lastIndex)
+                            message = "Event deleted."
+                        },
+                        colors = textButtonColors,
+                    ) {
+                        Text("Delete")
+                    }
+                }
+            }
+
+            Text("Import JSON / CSV / TSV", color = gold, style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = importText,
+                onValueChange = { importText = it },
+                label = { Text("Paste events") },
+                minLines = 4,
+                colors = fieldColors,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    val imported = parseUserEvents(importText)
+                    if (imported.isEmpty()) {
+                        message = "No valid events found. Include name plus at least two criteria."
+                    } else {
+                        val next = (events + imported).distinctBy { it.identityKey() }
+                        onEventsChanged(next)
+                        selectedIndex = next.lastIndex
+                        importText = ""
+                        message = "Imported ${imported.size} event(s)."
+                    }
+                },
+                colors = buttonColors,
+            ) {
+                Text("Import Events")
+            }
+            message?.let { Text(it, color = ivory) }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun SavedDaysList(
+    events: List<UserEvent>,
+    specialDays: List<SpecialDay>,
+    textColor: Color,
+    accentColor: Color,
+    textButtonColors: androidx.compose.material3.ButtonColors,
+    onEventsChanged: (List<UserEvent>) -> Unit,
+    onSpecialDaysChanged: (List<SpecialDay>) -> Unit,
+    onMessage: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("Your Days", color = accentColor, style = MaterialTheme.typography.titleMedium)
+        if (specialDays.isEmpty() && events.isEmpty()) {
+            Text("None saved", color = textColor.copy(alpha = 0.72f))
+            return@Column
+        }
+        specialDays.forEach { day ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "${day.name} - ${day.month} ${day.paksha} ${day.tithiNumber}",
+                    color = textColor,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = {
+                        onSpecialDaysChanged(specialDays.filterNot { it == day })
+                        onMessage("Deleted ${day.name}.")
+                    },
+                    colors = textButtonColors,
+                ) {
+                    Text("Delete")
+                }
+            }
+        }
+        events.forEach { event ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "${event.name} - ${event.criteriaLabel()}",
+                    color = textColor,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = {
+                        onEventsChanged(events.filterNot { it == event })
+                        onMessage("Deleted ${event.name}.")
+                    },
+                    colors = textButtonColors,
+                ) {
+                    Text("Delete")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CycleCriterion(
+    label: String,
+    value: String?,
+    options: List<String?>,
+    onValue: (String?) -> Unit,
+) {
+    val current = options.indexOf(value).takeIf { it >= 0 } ?: 0
+    val textButtonColors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFE2A3))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, color = Color(0xFFFFE8B0), modifier = Modifier.width(92.dp))
+        TextButton(onClick = { onValue(options[(current - 1).floorMod(options.size)]) }, colors = textButtonColors) { Text("-") }
+        Text(value ?: "Any", color = Color(0xFFFFE8B0), modifier = Modifier.weight(1f))
+        TextButton(onClick = { onValue(options[(current + 1).floorMod(options.size)]) }, colors = textButtonColors) { Text("+") }
+    }
+}
+
+private data class UserEvent(
+    val name: String = "",
+    val month: String? = null,
+    val paksha: String? = null,
+    val tithiIndex: Int? = null,
+    val nakshatra: String? = null,
+    val rashi: String? = null,
+) {
+    fun matches(state: YantraState): Boolean =
+        criteriaCount() >= 2 &&
+            (month == null || month == state.lunarMonth) &&
+            (paksha == null || paksha == state.paksha) &&
+            (tithiIndex == null || tithiIndex == state.tithi.index) &&
+            (nakshatra == null || nakshatra == state.nakshatra.name) &&
+            (rashi == null || rashi == state.solarRashi.name || rashi == state.lunarRashi.name)
+
+    fun criteriaCount(): Int = listOf(month, paksha, tithiIndex, nakshatra, rashi).count { it != null }
+
+    fun identityKey(): String = listOf(name, month, paksha, tithiIndex?.toString(), nakshatra, rashi).joinToString("|")
+
+    fun criteriaLabel(): String = listOfNotNull(
+        month?.let { "Maasa $it" },
+        paksha,
+        tithiIndex?.let { CalendarCatalog.tithis[it].name },
+        nakshatra?.let { "Nakshatra $it" },
+        rashi?.let { "Rashi $it" },
+    ).joinToString(", ")
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("name", name)
+        month?.let { put("month", it) }
+        paksha?.let { put("paksha", it) }
+        tithiIndex?.let { put("tithiIndex", it) }
+        nakshatra?.let { put("nakshatra", it) }
+        rashi?.let { put("rashi", it) }
+    }
+
+    fun toDraft(): UserEventDraft = UserEventDraft(name, month, paksha, tithiIndex, nakshatra, rashi)
+}
+
+private data class UserEventDraft(
+    val name: String = "",
+    val month: String? = null,
+    val paksha: String? = null,
+    val tithiIndex: Int? = null,
+    val nakshatra: String? = null,
+    val rashi: String? = null,
+) {
+    fun toEvent(): UserEvent? {
+        val event = UserEvent(name.trim(), month, paksha, tithiIndex, nakshatra, rashi)
+        return event.takeIf { it.name.isNotBlank() && it.criteriaCount() >= 2 }
+    }
+}
+
+private const val USER_SETTINGS_PREFS = "yantra_user_settings"
+private const val USER_EVENTS_KEY = "events_json"
+private const val USER_LOGO_KEY = "logo_path"
+private const val USER_LOGO_FILE = "user_logo"
+
+private fun loadUserEvents(context: Context): List<UserEvent> {
+    val raw = context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE).getString(USER_EVENTS_KEY, null) ?: return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        List(array.length()) { index -> userEventFromJson(array.getJSONObject(index)) }
+            .filter { it.name.isNotBlank() && it.criteriaCount() >= 2 }
+    }.getOrDefault(emptyList())
+}
+
+private fun saveUserEvents(context: Context, events: List<UserEvent>) {
+    val array = JSONArray()
+    events.forEach { array.put(it.toJson()) }
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(USER_EVENTS_KEY, array.toString())
+        .apply()
+}
+
+private fun userEventFromJson(json: JSONObject): UserEvent =
+    UserEvent(
+        name = json.optString("name").trim(),
+        month = canonical(json.optNullableString("month") ?: json.optNullableString("maasa"), CalendarCatalog.lunarMonths.map { it.name }),
+        paksha = canonical(json.optNullableString("paksha"), listOf("Shukla", "Krishna")),
+        tithiIndex = json.optTithiIndex(),
+        nakshatra = canonical(json.optNullableString("nakshatra") ?: json.optNullableString("naksatra"), CalendarCatalog.nakshatras.map { it.name }),
+        rashi = canonical(json.optNullableString("rashi"), CalendarCatalog.rashis.map { it.name }),
+    )
+
+private fun JSONObject.optNullableString(name: String): String? =
+    if (has(name) && !isNull(name)) optString(name).trim().takeIf { it.isNotBlank() && !it.equals("any", true) } else null
+
+private fun JSONObject.optTithiIndex(): Int? {
+    if (has("tithiIndex") && !isNull("tithiIndex")) return optInt("tithiIndex").takeIf { it in 0..29 }
+    val paksha = optNullableString("paksha")
+    val raw = optNullableString("tithi") ?: optNullableString("tithiNumber") ?: return null
+    return parseTithiIndex(raw, paksha)
+}
+
+private fun parseUserEvents(raw: String): List<UserEvent> {
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) return emptyList()
+    return if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+        parseUserEventsJson(trimmed)
+    } else {
+        parseUserEventsDelimited(trimmed)
+    }.filter { it.name.isNotBlank() && it.criteriaCount() >= 2 }
+}
+
+private fun parseUserEventsJson(raw: String): List<UserEvent> =
+    runCatching {
+        val array = if (raw.startsWith("[")) JSONArray(raw) else JSONArray().put(JSONObject(raw))
+        List(array.length()) { index -> userEventFromJson(array.getJSONObject(index)) }
+    }.getOrDefault(emptyList())
+
+private fun parseUserEventsDelimited(raw: String): List<UserEvent> {
+    val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
+    if (lines.size < 2) return emptyList()
+    val delimiter = if (lines.first().contains('\t')) '\t' else ','
+    val headers = lines.first().split(delimiter).map { it.trim().lowercase() }
+    return lines.drop(1).mapNotNull { line ->
+        val values = line.split(delimiter).map { it.trim() }
+        val map = headers.mapIndexedNotNull { index, header -> values.getOrNull(index)?.let { header to it } }.toMap()
+        val paksha = canonical(map["paksha"].normalizeCriterion(), listOf("Shukla", "Krishna"))
+        UserEvent(
+            name = map["name"].orEmpty().trim(),
+            month = canonical((map["month"] ?: map["maasa"]).normalizeCriterion(), CalendarCatalog.lunarMonths.map { it.name }),
+            paksha = paksha,
+            tithiIndex = (map["tithiindex"]?.toIntOrNull()?.takeIf { it in 0..29 })
+                ?: parseTithiIndex(map["tithi"] ?: map["tithinumber"], paksha),
+            nakshatra = canonical((map["nakshatra"] ?: map["naksatra"]).normalizeCriterion(), CalendarCatalog.nakshatras.map { it.name }),
+            rashi = canonical(map["rashi"].normalizeCriterion(), CalendarCatalog.rashis.map { it.name }),
+        )
+    }
+}
+
+private fun String?.normalizeCriterion(): String? =
+    this?.trim()?.takeIf { it.isNotBlank() && !it.equals("any", true) }
+
+private fun canonical(value: String?, options: List<String>): String? =
+    value?.let { candidate -> options.firstOrNull { it.equals(candidate, true) } }
+
+private fun parseTithiIndex(raw: String?, paksha: String?): Int? {
+    val value = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    CalendarCatalog.tithis.indexOfFirst { it.name.equals(value, true) }.takeIf { it >= 0 }?.let { return it }
+    val number = value.filter { it.isDigit() }.toIntOrNull()?.takeIf { it in 1..30 } ?: return null
+    if (number > 15) return number - 1
+    return when (paksha?.lowercase()) {
+        "krishna" -> number + 14
+        else -> number - 1
+    }
+}
+
+private fun loadUserLogoPath(context: Context): String? =
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(USER_LOGO_KEY, null)
+        ?.takeIf { File(it).exists() }
+
+private fun saveUserLogoPath(context: Context, path: String?) {
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(USER_LOGO_KEY, path)
+        .apply()
+}
+
+private fun saveUserLogo(context: Context, uri: Uri): String {
+    val destination = File(context.filesDir, USER_LOGO_FILE)
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        destination.outputStream().use { output -> input.copyTo(output) }
+    }
+    return destination.absolutePath
+}
+
+private fun clearUserLogo(context: Context) {
+    File(context.filesDir, USER_LOGO_FILE).delete()
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .remove(USER_LOGO_KEY)
+        .apply()
+}
+
+private fun loadLogoBitmap(path: String): ImageBitmap? =
+    runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
+
+private const val YANTRA_REPOSITORY_URL = "https://github.com/octotus/Yantra"
+
+private fun openRepository(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(YANTRA_REPOSITORY_URL))
+    runCatching { context.startActivity(intent) }
+}
+
+private fun Int.floorMod(modulus: Int): Int = Math.floorMod(this, modulus)
+
 private object FestivalCatalog {
     private val definitions = listOf(
         FestivalDefinition("Makara Sankranti", FestivalRank.Major, solarRashi = "Makara", previousSolarRashi = "Dhanu", astronomicalDefinition = "Solar ingress into sidereal Makara."),
@@ -449,6 +1045,7 @@ private data class YantraLayout(
     val center: Offset,
     val radius: Float,
     val dateHitRect: Rect,
+    val settingsHitRect: Rect,
     val lotusCenter: Offset,
     val lotusRadius: Float,
 )
@@ -486,7 +1083,15 @@ private fun yantraLayout(width: Float, height: Float): YantraLayout {
         dateCenter.x + min(width * 0.44f, radius * 0.95f),
         dateCenter.y + ringWidth * 0.62f,
     )
-    return YantraLayout(center, radius, dateHitRect, lotusCenter, lotusRadius)
+    val gearSize = min(width, height) * 0.0665f
+    val gearCenter = Offset(width * 0.09f, height - gearSize * 2.35f)
+    val settingsHitRect = Rect(
+        gearCenter.x - gearSize * 0.72f,
+        gearCenter.y - gearSize * 0.72f,
+        gearCenter.x + gearSize * 0.72f,
+        gearCenter.y + gearSize * 0.72f,
+    )
+    return YantraLayout(center, radius, dateHitRect, settingsHitRect, lotusCenter, lotusRadius)
 }
 
 private fun lotusRadiusForLayout(ringWidth: Float): Float = ringWidth * 0.76f
@@ -500,11 +1105,14 @@ private fun YantraInstrument(
     observanceLabel: String?,
     showFestivalLabel: Boolean,
     annotation: YantraAnnotation?,
+    userLogo: ImageBitmap?,
+    userLogoLit: Boolean,
     now: ZonedDateTime,
     modifier: Modifier = Modifier,
     onMoonTap: () -> Unit,
     onDateTap: () -> Unit,
     onDateLongPress: () -> Unit,
+    onSettingsTap: () -> Unit,
     onFestivalTap: () -> Unit,
     onAnnotation: (YantraAnnotation) -> Unit,
 ) {
@@ -543,6 +1151,8 @@ private fun YantraInstrument(
                     val moonRadius = layout.radius * 0.19f
                     if (distance <= moonRadius * 1.6f) {
                         onMoonTap()
+                    } else if (tap.isInRect(layout.settingsHitRect)) {
+                        onSettingsTap()
                     } else if (observanceLabel != null && hypot(tap.x - layout.lotusCenter.x, tap.y - layout.lotusCenter.y) <= layout.lotusRadius * 1.35f) {
                         onFestivalTap()
                     } else if (tap.isInRect(layout.dateHitRect)) {
@@ -576,6 +1186,15 @@ private fun YantraInstrument(
 
         drawPocketWatchBody(center, faceRadius, bodyRadius, ringWidth, brass, brightGold)
         drawDeviceLighting(center, faceRadius, state.solarAltitude.toFloat(), moonlight, brightGold)
+        userLogo?.let {
+            drawUserLogo(
+                image = it,
+                center = Offset(size.width / 2f, maxOf(size.height * 0.055f, ringWidth * 1.45f)),
+                size = ringWidth * 1.9f,
+                lit = userLogoLit,
+                gold = brightGold,
+            )
+        }
 
         withTransform({
             translate(left = centerShift.x, top = centerShift.y)
@@ -690,6 +1309,7 @@ private fun YantraInstrument(
         annotation?.let {
             drawAnnotationCard(it, sigilImages, center, radius, ringWidth, brightGold)
         }
+        drawSettingsGear(layout.settingsHitRect.center, layout.settingsHitRect.width * 0.64f, brightGold)
     }
 }
 
@@ -716,6 +1336,62 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPocketWatchBody
     drawCircle(gold.copy(alpha = 0.86f), innerRadius + width * 0.06f, center, style = Stroke(width = width * 0.06f))
     drawCircle(brass.copy(alpha = 0.7f), innerRadius + width * 0.2f, center, style = Stroke(width = width * 0.18f))
     drawCircle(Color(0xFFFFF0BD).copy(alpha = 0.62f), outerRadius, center, style = Stroke(width = 1.dp.toPx()))
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawUserLogo(
+    image: ImageBitmap,
+    center: Offset,
+    size: Float,
+    lit: Boolean,
+    gold: Color,
+) {
+    if (lit) {
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.0f to gold.copy(alpha = 0.54f),
+                0.58f to gold.copy(alpha = 0.2f),
+                1.0f to Color.Transparent,
+                center = center,
+                radius = size * 0.9f,
+            ),
+            radius = size,
+            center = center,
+        )
+    }
+    val px = size.toInt().coerceAtLeast(1)
+    drawCircle(Color(0xFF050403).copy(alpha = 0.72f), size * 0.52f, center)
+    drawImage(
+        image = image,
+        srcOffset = IntOffset(0, 0),
+        srcSize = IntSize(image.width, image.height),
+        dstOffset = IntOffset((center.x - px / 2f).toInt(), (center.y - px / 2f).toInt()),
+        dstSize = IntSize(px, px),
+        alpha = if (lit) 1.0f else 0.62f,
+    )
+    drawCircle(gold.copy(alpha = if (lit) 0.82f else 0.34f), size * 0.52f, center, style = Stroke(width = size * 0.025f))
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSettingsGear(
+    center: Offset,
+    size: Float,
+    gold: Color,
+) {
+    val color = Color(0xFFE8CA8B).copy(alpha = 0.43f)
+    val radius = size * 0.34f
+    drawCircle(Color(0xFF050302).copy(alpha = 0.31f), radius * 1.62f, center)
+    drawCircle(gold.copy(alpha = 0.21f), radius * 1.58f, center, style = Stroke(width = size * 0.035f))
+    repeat(8) { index ->
+        val angle = index * Math.PI.toFloat() / 4f
+        drawLine(
+            color = color,
+            start = center.polar(angle, radius * 1.05f),
+            end = center.polar(angle, radius * 1.38f),
+            strokeWidth = size * 0.095f,
+            cap = StrokeCap.Round,
+        )
+    }
+    drawCircle(color, radius, center, style = Stroke(width = size * 0.09f))
+    drawCircle(color, radius * 0.36f, center, style = Stroke(width = size * 0.07f))
 }
 
 private fun hitAnnotation(
@@ -1951,7 +2627,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMoon(
     solarLongitude: Double,
 ) {
     val phase = normalizePhase(lunarLongitude - solarLongitude)
-    val waxing = phase >= 180.0
+    val waxing = phase <= 180.0
     val bright = Color(0xFFE7E0CE)
     val mid = Color(0xFF8D887D)
     val shadow = Color(0xFF15130F)
@@ -1980,28 +2656,28 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMoon(
         val path = android.graphics.Path()
         val steps = 48
         if (waxing) {
-            path.moveTo(center.x, center.y - radius)
+            path.moveTo(center.x - radius, center.y)
             for (step in 0..steps) {
-                val y = -radius + (2f * radius * step / steps)
-                val edge = sqrt((radius * radius - y * y).coerceAtLeast(0f))
-                path.lineTo(center.x + edge, center.y + y)
+                val x = -radius + (2f * radius * step / steps)
+                val edge = sqrt((radius * radius - x * x).coerceAtLeast(0f))
+                path.lineTo(center.x + x, center.y + edge)
             }
             for (step in steps downTo 0) {
-                val y = -radius + (2f * radius * step / steps)
-                val edge = sqrt((radius * radius - y * y).coerceAtLeast(0f))
-                path.lineTo(center.x + phaseCos * edge, center.y + y)
+                val x = -radius + (2f * radius * step / steps)
+                val edge = sqrt((radius * radius - x * x).coerceAtLeast(0f))
+                path.lineTo(center.x + x, center.y + phaseCos * edge)
             }
         } else {
-            path.moveTo(center.x, center.y - radius)
+            path.moveTo(center.x - radius, center.y)
             for (step in 0..steps) {
-                val y = -radius + (2f * radius * step / steps)
-                val edge = sqrt((radius * radius - y * y).coerceAtLeast(0f))
-                path.lineTo(center.x - edge, center.y + y)
+                val x = -radius + (2f * radius * step / steps)
+                val edge = sqrt((radius * radius - x * x).coerceAtLeast(0f))
+                path.lineTo(center.x + x, center.y - edge)
             }
             for (step in steps downTo 0) {
-                val y = -radius + (2f * radius * step / steps)
-                val edge = sqrt((radius * radius - y * y).coerceAtLeast(0f))
-                path.lineTo(center.x + phaseCos * edge, center.y + y)
+                val x = -radius + (2f * radius * step / steps)
+                val edge = sqrt((radius * radius - x * x).coerceAtLeast(0f))
+                path.lineTo(center.x + x, center.y - phaseCos * edge)
             }
         }
         path.close()
@@ -2035,9 +2711,9 @@ private fun normalizePhase(value: Double): Double {
 
 private fun tithiCellStartAngle(index: Int): Float =
     if (index < 15) {
-        90f + index * 12f
+        96f + index * 12f
     } else {
-        -90f + (index - 15) * 12f
+        -84f + (index - 15) * 12f
     }
 
 private fun tithiCellCenterAngle(index: Int): Float = tithiCellStartAngle(index) + 6f
