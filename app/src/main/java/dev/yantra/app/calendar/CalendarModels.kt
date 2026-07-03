@@ -22,6 +22,24 @@ data class LagnaSector(
     val durationFraction: Double,
 )
 
+data class MonthNameSet(
+    val id: String,
+    val displayName: String,
+    val monthNames: List<String>,
+    val abbreviations: List<String>,
+)
+
+data class CalendarLocaleRule(
+    val id: String,
+    val displayName: String,
+    val newYearMonthIndex: Int,
+)
+
+enum class MonthReckoning(val id: String, val displayName: String) {
+    Amanta("amanta", "Amanta"),
+    Purnimanta("purnimanta", "Purnimanta"),
+}
+
 data class YantraState(
     val julianDay: Double,
     val solarLongitude: Double,
@@ -60,6 +78,94 @@ object CalendarCatalog {
         MonthSector(9, "Pausha", "PAU", 29.5, 30.0),
         MonthSector(10, "Magha", "MAG", 29.5, 30.0),
         MonthSector(11, "Phalguna", "PHA", 29.5, 30.0),
+    )
+
+    val monthNameSets = listOf(
+        MonthNameSet(
+            id = "en",
+            displayName = "English / Sanskrit",
+            monthNames = lunarMonths.map { it.name },
+            abbreviations = lunarMonths.map { it.abbreviation },
+        ),
+        MonthNameSet(
+            id = "hi",
+            displayName = "Hindi",
+            monthNames = listOf("चैत्र", "वैशाख", "ज्येष्ठ", "आषाढ़", "श्रावण", "भाद्रपद", "आश्विन", "कार्तिक", "मार्गशीर्ष", "पौष", "माघ", "फाल्गुन"),
+            abbreviations = listOf("चै", "वै", "ज्ये", "आषा", "श्रा", "भा", "आश", "का", "मा", "पौ", "माघ", "फा"),
+        ),
+        MonthNameSet(
+            id = "sa",
+            displayName = "Sanskrit",
+            monthNames = listOf("चैत्रः", "वैशाखः", "ज्येष्ठः", "आषाढः", "श्रावणः", "भाद्रपदः", "आश्विनः", "कार्तिकः", "मार्गशीर्षः", "पौषः", "माघः", "फाल्गुनः"),
+            abbreviations = listOf("चै", "वै", "ज्ये", "आषा", "श्रा", "भा", "आश", "का", "मा", "पौ", "माघ", "फा"),
+        ),
+        MonthNameSet(
+            id = "ta",
+            displayName = "Tamil",
+            monthNames = listOf("சித்திரை", "வைகாசி", "ஆனி", "ஆடி", "ஆவணி", "புரட்டாசி", "ஐப்பசி", "கார்த்திகை", "மார்கழி", "தை", "மாசி", "பங்குனி"),
+            abbreviations = listOf("சி", "வை", "ஆனி", "ஆடி", "ஆவ", "பு", "ஐ", "கா", "மா", "தை", "மாசி", "பங்"),
+        ),
+        MonthNameSet(
+            id = "te",
+            displayName = "Telugu",
+            monthNames = listOf("చైత్రం", "వైశాఖం", "జ్యేష్ఠం", "ఆషాఢం", "శ్రావణం", "భాద్రపదం", "ఆశ్వయుజం", "కార్తీకం", "మార్గశిరం", "పుష్యం", "మాఘం", "ఫాల్గుణం"),
+            abbreviations = listOf("చై", "వై", "జ్యే", "ఆషా", "శ్రా", "భా", "ఆశ్", "కా", "మా", "పు", "మాఘ", "ఫా"),
+        ),
+        MonthNameSet(
+            id = "kn",
+            displayName = "Kannada",
+            monthNames = listOf("ಚೈತ್ರ", "ವೈಶಾಖ", "ಜ್ಯೇಷ್ಠ", "ಆಷಾಢ", "ಶ್ರಾವಣ", "ಭಾದ್ರಪದ", "ಆಶ್ವಯುಜ", "ಕಾರ್ತಿಕ", "ಮಾರ್ಗಶಿರ", "ಪುಷ್ಯ", "ಮಾಘ", "ಫಾಲ್ಗುಣ"),
+            abbreviations = listOf("ಚೈ", "ವೈ", "ಜ್ಯೇ", "ಆಷಾ", "ಶ್ರಾ", "ಭಾ", "ಆಶ್", "ಕಾ", "ಮಾ", "ಪು", "ಮಾಘ", "ಫಾ"),
+        ),
+        MonthNameSet(
+            id = "ml",
+            displayName = "Malayalam",
+            monthNames = listOf("ചൈത്രം", "വൈശാഖം", "ജ്യേഷ്ഠം", "ആഷാഢം", "ശ്രാവണം", "ഭാദ്രപദം", "ആശ്വിനം", "കാർത്തികം", "മാർഗശീർഷം", "പൗഷം", "മാഘം", "ഫാൽഗുനം"),
+            abbreviations = listOf("ചൈ", "വൈ", "ജ്യേ", "ആഷാ", "ശ്രാ", "ഭാ", "ആശ്", "കാ", "മാ", "പൗ", "മാഘ", "ഫാ"),
+        ),
+        MonthNameSet(
+            id = "bn",
+            displayName = "Bengali",
+            monthNames = listOf("চৈত্র", "বৈশাখ", "জ্যৈষ্ঠ", "আষাঢ়", "শ্রাবণ", "ভাদ্র", "আশ্বিন", "কার্তিক", "অগ্রহায়ণ", "পৌষ", "মাঘ", "ফাল্গুন"),
+            abbreviations = listOf("চৈ", "বৈ", "জ্যৈ", "আষা", "শ্রা", "ভা", "আশ", "কা", "অগ্র", "পৌ", "মাঘ", "ফা"),
+        ),
+        MonthNameSet(
+            id = "as",
+            displayName = "Assamese",
+            monthNames = listOf("চ'ত", "বহাগ", "জেঠ", "আহাৰ", "শাওণ", "ভাদ", "আহিন", "কাতি", "আঘোণ", "পুহ", "মাঘ", "ফাগুন"),
+            abbreviations = listOf("চ'", "ব", "জে", "আহা", "শা", "ভা", "আহি", "কা", "আঘ", "পু", "মা", "ফা"),
+        ),
+        MonthNameSet(
+            id = "gu",
+            displayName = "Gujarati",
+            monthNames = listOf("ચૈત્ર", "વૈશાખ", "જેઠ", "અષાઢ", "શ્રાવણ", "ભાદરવો", "આસો", "કારતક", "માગશર", "પોષ", "મહા", "ફાગણ"),
+            abbreviations = listOf("ચૈ", "વૈ", "જેઠ", "અષા", "શ્રા", "ભા", "આસો", "કા", "માગ", "પોષ", "મહા", "ફા"),
+        ),
+        MonthNameSet(
+            id = "mr",
+            displayName = "Marathi",
+            monthNames = listOf("चैत्र", "वैशाख", "ज्येष्ठ", "आषाढ", "श्रावण", "भाद्रपद", "आश्विन", "कार्तिक", "मार्गशीर्ष", "पौष", "माघ", "फाल्गुन"),
+            abbreviations = listOf("चै", "वै", "ज्ये", "आषा", "श्रा", "भा", "आश", "का", "मा", "पौ", "माघ", "फा"),
+        ),
+        MonthNameSet(
+            id = "pa",
+            displayName = "Punjabi",
+            monthNames = listOf("ਚੇਤ", "ਵੈਸਾਖ", "ਜੇਠ", "ਹਾੜ੍ਹ", "ਸਾਵਣ", "ਭਾਦੋਂ", "ਅੱਸੂ", "ਕੱਤਕ", "ਮੱਘਰ", "ਪੋਹ", "ਮਾਘ", "ਫੱਗਣ"),
+            abbreviations = listOf("ਚੇ", "ਵੈ", "ਜੇ", "ਹਾ", "ਸਾ", "ਭਾ", "ਅੱ", "ਕੱ", "ਮੱ", "ਪੋ", "ਮਾਘ", "ਫੱ"),
+        ),
+        MonthNameSet(
+            id = "or",
+            displayName = "Odia",
+            monthNames = listOf("ଚୈତ୍ର", "ବୈଶାଖ", "ଜ୍ୟେଷ୍ଠ", "ଆଷାଢ଼", "ଶ୍ରାବଣ", "ଭାଦ୍ରବ", "ଆଶ୍ୱିନ", "କାର୍ତ୍ତିକ", "ମାର୍ଗଶୀର", "ପୌଷ", "ମାଘ", "ଫାଲ୍ଗୁନ"),
+            abbreviations = listOf("ଚୈ", "ବୈ", "ଜ୍ୟେ", "ଆଷା", "ଶ୍ରା", "ଭା", "ଆଶ୍", "କା", "ମା", "ପୌ", "ମାଘ", "ଫା"),
+        ),
+    )
+
+    val calendarLocaleRules = listOf(
+        CalendarLocaleRule("chaitra", "Chaitra new year", 0),
+        CalendarLocaleRule("kartika", "Kartika new year", 7),
+        CalendarLocaleRule("mesha", "Mesha / solar new year", 0),
+        CalendarLocaleRule("makara", "Makara / Thai-Pongal cycle", 9),
     )
 
     val rashis = listOf(

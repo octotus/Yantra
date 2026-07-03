@@ -19,6 +19,8 @@ import kotlin.math.sin
 
 object YantraWidgetRenderer {
     private const val SIZE = 720
+    private const val LOCK_SCREEN_WIDTH = 1080
+    private const val LOCK_SCREEN_HEIGHT = 320
     private const val GOLD = 0xFFE6B85C.toInt()
     private const val DIM_GOLD = 0xFF8C6828.toInt()
     private const val BRONZE = 0xFF6F3D1F.toInt()
@@ -43,7 +45,29 @@ object YantraWidgetRenderer {
         return bitmap
     }
 
-    private fun drawTimedBackground(canvas: Canvas, state: YantraState) {
+    fun renderLockScreen(state: YantraState, dateTime: ZonedDateTime): Bitmap {
+        val bitmap = Bitmap.createBitmap(LOCK_SCREEN_WIDTH, LOCK_SCREEN_HEIGHT, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val centerX = LOCK_SCREEN_HEIGHT * 0.54f
+        val centerY = LOCK_SCREEN_HEIGHT / 2f
+        val radius = LOCK_SCREEN_HEIGHT * 0.31f
+        val labelX = LOCK_SCREEN_HEIGHT * 1.02f
+
+        drawTimedBackground(canvas, state, LOCK_SCREEN_WIDTH, LOCK_SCREEN_HEIGHT)
+        drawWatchBody(canvas, centerX, centerY, radius)
+        drawYantra(canvas, state, centerX, centerY, radius)
+        drawMoon(canvas, state, centerX, centerY, radius * 0.2f)
+        drawHands(canvas, state, centerX, centerY, radius)
+        drawLockScreenLabels(canvas, state, dateTime, labelX, centerY)
+        return bitmap
+    }
+
+    private fun drawTimedBackground(
+        canvas: Canvas,
+        state: YantraState,
+        width: Int = SIZE,
+        height: Int = SIZE,
+    ) {
         val dayColor = when {
             state.solarAltitude > 35.0 -> 0xFFFAE8A3.toInt()
             state.solarAltitude > 5.0 -> 0xFFB97831.toInt()
@@ -56,25 +80,50 @@ object YantraWidgetRenderer {
             0f,
             0f,
             0f,
-            SIZE.toFloat(),
+            height.toFloat(),
             dayColor,
             INK,
             Shader.TileMode.CLAMP,
         )
-        canvas.drawRect(0f, 0f, SIZE.toFloat(), SIZE.toFloat(), paint)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
 
         if (state.solarAltitude < -8.0) {
             paint.shader = null
             paint.color = Color.argb(170, 255, 236, 184)
             listOf(
-                88f to 112f,
-                172f to 268f,
-                548f to 146f,
-                610f to 324f,
-                486f to 514f,
-                118f to 486f,
-            ).forEach { (x, y) -> canvas.drawCircle(x, y, 2.4f, paint) }
+                0.12f to 0.16f,
+                0.24f to 0.37f,
+                0.76f to 0.20f,
+                0.85f to 0.45f,
+                0.68f to 0.71f,
+                0.16f to 0.68f,
+                0.92f to 0.76f,
+            ).forEach { (x, y) -> canvas.drawCircle(width * x, height * y, 2.4f, paint) }
         }
+    }
+
+    private fun drawLockScreenLabels(
+        canvas: Canvas,
+        state: YantraState,
+        dateTime: ZonedDateTime,
+        x: Float,
+        centerY: Float,
+    ) {
+        val labelPaint = textPaint(34f, IVORY, Paint.Align.LEFT)
+        canvas.drawText(dateFormatter.format(dateTime).uppercase(), x, centerY - 72f, labelPaint)
+
+        labelPaint.textSize = 48f
+        labelPaint.color = GOLD
+        canvas.drawText("${state.paksha} ${state.tithi.index % 15 + 1}", x, centerY - 18f, labelPaint)
+
+        labelPaint.textSize = 30f
+        labelPaint.color = IVORY
+        canvas.drawText("${state.month.name} / ${state.nakshatra.name}", x, centerY + 34f, labelPaint)
+
+        labelPaint.textSize = 28f
+        labelPaint.color = DIM_GOLD
+        val lagna = state.lagnaRashi?.name ?: state.solarRashi.name
+        canvas.drawText("${state.samvatsara.name}  ${state.lunarRashi.name} Moon  $lagna Lagna", x, centerY + 82f, labelPaint)
     }
 
     private fun drawWatchBody(canvas: Canvas, cx: Float, cy: Float, radius: Float) {

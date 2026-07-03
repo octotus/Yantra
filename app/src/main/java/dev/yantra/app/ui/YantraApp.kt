@@ -1,37 +1,15 @@
 package dev.yantra.app.ui
 
-import android.content.Context
-import android.content.Intent
-import android.graphics.BitmapFactory
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,14 +28,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -66,6 +42,7 @@ import dev.yantra.app.R
 import dev.yantra.app.calendar.CalendarCatalog
 import dev.yantra.app.calendar.LagnaSector
 import dev.yantra.app.calendar.MonthSector
+import dev.yantra.app.calendar.MonthNameSet
 import dev.yantra.app.calendar.YantraCalendarEngine
 import dev.yantra.app.calendar.YantraState
 import dev.yantra.app.engine.AstronomyEngine
@@ -73,15 +50,10 @@ import dev.yantra.app.engine.EphemerisAssets
 import dev.yantra.app.engine.Observer
 import dev.yantra.app.engine.SwissEphemeris
 import kotlinx.coroutines.delay
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.time.YearMonth
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
@@ -95,19 +67,27 @@ fun YantraApp() {
         pushyaFlower = ImageBitmap.imageResource(id = R.drawable.sigil_pushya_flower),
         purvaPhalguniPavilion = ImageBitmap.imageResource(id = R.drawable.sigil_purva_phalguni_pavilion),
     )
-    val engine = remember(context) {
+    var monthNameSetId by remember(context) { mutableStateOf(loadMonthNameSetId(context)) }
+    var calendarLocaleRuleId by remember(context) { mutableStateOf(loadCalendarLocaleRuleId(context)) }
+    var monthReckoningId by remember(context) { mutableStateOf(loadMonthReckoningId(context)) }
+    val monthNameSet = remember(monthNameSetId) { selectedMonthNameSet(monthNameSetId) }
+    val calendarLocaleRule = remember(calendarLocaleRuleId) { selectedCalendarLocaleRule(calendarLocaleRuleId) }
+    val monthReckoning = remember(monthReckoningId) { selectedMonthReckoning(monthReckoningId) }
+    val engine = remember(context, calendarLocaleRuleId, monthReckoningId) {
         val ephemerisDirectory = EphemerisAssets(context).install()
         YantraCalendarEngine(
             AstronomyEngine(
                 longitudeProvider = SwissEphemeris(ephemerisDirectory.absolutePath)
-            )
+            ),
+            calendarLocaleRule = calendarLocaleRule,
+            monthReckoning = monthReckoning,
         )
     }
     val observer = remember { Observer(latitude = 45.5019, longitude = -73.5674) }
     var now by remember { mutableStateOf(ZonedDateTime.now()) }
     var datePreviewActive by remember { mutableStateOf(false) }
-    val state = remember(now) { engine.compute(now, observer) }
-    val previousState = remember(now) { engine.compute(now.minusDays(1), observer) }
+    val state = remember(now, engine) { engine.compute(now, observer) }
+    val previousState = remember(now, engine) { engine.compute(now.minusDays(1), observer) }
     val festival = remember(state, previousState) { FestivalCatalog.match(state, previousState) }
     var specialDays by remember(context) { mutableStateOf(loadSpecialDays(context)) }
     val specialDay = remember(state, specialDays) { specialDays.firstOrNull { it.matches(state) } }
@@ -183,6 +163,7 @@ fun YantraApp() {
                     YantraInstrument(
                         state = state,
                         sigilImages = sigilImages,
+                        monthNameSet = monthNameSet,
                         lunarEmphasis = lunarEmphasis,
                         festival = festival,
                         observanceLabel = observanceLabel,
@@ -222,6 +203,9 @@ fun YantraApp() {
                             logoPath = logoPath,
                             events = userEvents,
                             specialDays = specialDays,
+                            monthNameSetId = monthNameSetId,
+                            calendarLocaleRuleId = calendarLocaleRuleId,
+                            monthReckoningId = monthReckoningId,
                             onDismiss = { settingsOpen = false },
                             onLogoSelected = { uri ->
                                 val path = saveUserLogo(context, uri)
@@ -240,12 +224,25 @@ fun YantraApp() {
                                 saveSpecialDays(context, next)
                                 specialDays = next
                             },
+                            onMonthNameSetChanged = { id ->
+                                saveMonthNameSetId(context, id)
+                                monthNameSetId = id
+                            },
+                            onCalendarLocaleRuleChanged = { id ->
+                                saveCalendarLocaleRuleId(context, id)
+                                calendarLocaleRuleId = id
+                            },
+                            onMonthReckoningChanged = { id ->
+                                saveMonthReckoningId(context, id)
+                                monthReckoningId = id
+                            },
                         )
                     }
                     if (specialDayEditorOpen) {
                         SpecialDayEditor(
                             state = state,
                             savedDays = specialDays.filter { it.matches(state) },
+                            monthNameSet = monthNameSet,
                             onDismiss = { specialDayEditorOpen = false },
                             onSave = { name ->
                                 val next = (specialDays + state.toSpecialDay(name))
@@ -270,836 +267,10 @@ fun YantraApp() {
 }
 
 @Composable
-private fun SpecialDayEditor(
-    state: YantraState,
-    savedDays: List<SpecialDay>,
-    onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
-    onDelete: (SpecialDay) -> Unit,
-) {
-    var name by remember(state) { mutableStateOf("") }
-    var selectedSavedIndex by remember(state, savedDays) { mutableStateOf(0) }
-    val selectedSavedDay = savedDays.getOrNull(selectedSavedIndex.coerceAtMost((savedDays.size - 1).coerceAtLeast(0)))
-    val tithiNumber = (state.tithi.index % 15) + 1
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Special day") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${state.lunarMonth} ${state.paksha} $tithiNumber")
-                if (selectedSavedDay != null) {
-                    Text("Saved: ${selectedSavedDay.name}")
-                    if (savedDays.size > 1) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = { selectedSavedIndex = (selectedSavedIndex - 1).floorMod(savedDays.size) }) {
-                                Text("Previous")
-                            }
-                            TextButton(onClick = { selectedSavedIndex = (selectedSavedIndex + 1).floorMod(savedDays.size) }) {
-                                Text("Next")
-                            }
-                        }
-                    }
-                    TextButton(onClick = { onDelete(selectedSavedDay) }) {
-                        Text("Delete saved")
-                    }
-                }
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("New name") },
-                    singleLine = true,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val trimmed = name.trim()
-                    if (trimmed.isNotBlank()) onSave(trimmed)
-                },
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-    )
-}
-
-@Composable
-private fun CryptexDatePicker(
-    selected: ZonedDateTime,
-    modifier: Modifier = Modifier,
-    onDismiss: () -> Unit,
-    onDateSelected: (ZonedDateTime) -> Unit,
-) {
-    var year by remember(selected) { mutableStateOf(selected.year) }
-    var month by remember(selected) { mutableStateOf(selected.monthValue) }
-    var day by remember(selected) { mutableStateOf(selected.dayOfMonth) }
-    val clampedDay = day.coerceIn(1, YearMonth.of(year, month).lengthOfMonth())
-
-    Canvas(
-        modifier = modifier.pointerInput(year, month, day) {
-            detectTapGestures { tap ->
-                val layout = cryptexLayout(size.width.toFloat(), size.height.toFloat())
-                if (!tap.isInRect(layout.outerRect)) {
-                    onDismiss()
-                    return@detectTapGestures
-                }
-                val column = layout.columns.indexOfFirst { tap.isInRect(it) }
-                if (column < 0) {
-                    if (tap.isInRect(layout.commitRect)) {
-                        onDateSelected(selected.withYear(year).withMonth(month).withDayOfMonth(clampedDay))
-                    }
-                    return@detectTapGestures
-                }
-                val zoneTop = layout.columns[column].top + layout.columns[column].height * 0.34f
-                val zoneBottom = layout.columns[column].top + layout.columns[column].height * 0.66f
-                when {
-                    tap.y < zoneTop -> {
-                        when (column) {
-                            0 -> year -= 1
-                            1 -> {
-                                month = if (month == 1) 12 else month - 1
-                                day = day.coerceAtMost(YearMonth.of(year, month).lengthOfMonth())
-                            }
-                            2 -> day = if (day == 1) YearMonth.of(year, month).lengthOfMonth() else day - 1
-                        }
-                    }
-                    tap.y > zoneBottom -> {
-                        when (column) {
-                            0 -> year += 1
-                            1 -> {
-                                month = if (month == 12) 1 else month + 1
-                                day = day.coerceAtMost(YearMonth.of(year, month).lengthOfMonth())
-                            }
-                            2 -> day = if (day == YearMonth.of(year, month).lengthOfMonth()) 1 else day + 1
-                        }
-                    }
-                    else -> onDateSelected(selected.withYear(year).withMonth(month).withDayOfMonth(clampedDay))
-                }
-            }
-        }
-    ) {
-        drawCryptexPicker(
-            layout = cryptexLayout(size.width, size.height),
-            year = year,
-            month = month,
-            day = clampedDay,
-        )
-    }
-}
-
-private data class CryptexLayout(
-    val outerRect: Rect,
-    val columns: List<Rect>,
-    val commitRect: Rect,
-)
-
-private enum class FestivalRank {
-    Major,
-    Minor,
-}
-
-private data class FestivalDefinition(
-    val name: String,
-    val rank: FestivalRank,
-    val month: String? = null,
-    val paksha: String? = null,
-    val tithiNumber: Int? = null,
-    val solarRashi: String? = null,
-    val previousSolarRashi: String? = null,
-    val nakshatra: String? = null,
-    val astronomicalDefinition: String,
-)
-
-private data class SpecialDay(
-    val name: String,
-    val month: String,
-    val paksha: String,
-    val tithiNumber: Int,
-) {
-    fun matches(state: YantraState): Boolean =
-        month == state.lunarMonth &&
-            paksha == state.paksha &&
-            tithiNumber == (state.tithi.index % 15) + 1
-}
-
-private const val SPECIAL_DAYS_PREFS = "yantra_special_days"
-private const val SPECIAL_DAYS_KEY = "days"
-
-private fun YantraState.toSpecialDay(name: String): SpecialDay =
-    SpecialDay(
-        name = name,
-        month = lunarMonth,
-        paksha = paksha,
-        tithiNumber = (tithi.index % 15) + 1,
-    )
-
-private fun loadSpecialDays(context: Context): List<SpecialDay> =
-    context.getSharedPreferences(SPECIAL_DAYS_PREFS, Context.MODE_PRIVATE)
-        .getStringSet(SPECIAL_DAYS_KEY, emptySet())
-        .orEmpty()
-        .mapNotNull { encoded ->
-            val parts = encoded.split("|")
-            if (parts.size != 4) return@mapNotNull null
-            val tithiNumber = parts[3].toIntOrNull() ?: return@mapNotNull null
-            SpecialDay(Uri.decode(parts[0]), parts[1], parts[2], tithiNumber)
-        }
-        .sortedWith(compareBy<SpecialDay> { it.month }.thenBy { it.paksha }.thenBy { it.tithiNumber }.thenBy { it.name })
-
-private fun saveSpecialDays(context: Context, days: List<SpecialDay>) {
-    val encoded = days.map { day ->
-        listOf(Uri.encode(day.name), day.month, day.paksha, day.tithiNumber.toString()).joinToString("|")
-    }.toSet()
-    context.getSharedPreferences(SPECIAL_DAYS_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putStringSet(SPECIAL_DAYS_KEY, encoded)
-        .apply()
-}
-
-@Composable
-private fun YantraSettingsScreen(
-    logoPath: String?,
-    events: List<UserEvent>,
-    specialDays: List<SpecialDay>,
-    onDismiss: () -> Unit,
-    onLogoSelected: (Uri) -> Unit,
-    onLogoCleared: () -> Unit,
-    onEventsChanged: (List<UserEvent>) -> Unit,
-    onSpecialDaysChanged: (List<SpecialDay>) -> Unit,
-) {
-    val context = LocalContext.current
-    val logoBitmap = remember(logoPath) { logoPath?.let(::loadLogoBitmap) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) onLogoSelected(uri)
-    }
-    var selectedIndex by remember(events) { mutableStateOf(-1) }
-    var draft by remember(events, selectedIndex) {
-        mutableStateOf((events.getOrNull(selectedIndex) ?: UserEvent()).toDraft())
-    }
-    var importText by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf<String?>(null) }
-    var savedDaysOpen by remember { mutableStateOf(false) }
-    val scroll = rememberScrollState()
-    val ivory = Color(0xFFFFE8B0)
-    val gold = Color(0xFFE8CA8B)
-    val brightGold = Color(0xFFFFE2A3)
-    val copper = Color(0xFF8E5424)
-    val deepCopper = Color(0xFF211007)
-    val ink = Color(0xFF050302)
-    val textButtonColors = ButtonDefaults.textButtonColors(contentColor = brightGold)
-    val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = copper,
-        contentColor = ivory,
-    )
-    val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = ivory,
-        unfocusedTextColor = ivory,
-        focusedLabelColor = brightGold,
-        unfocusedLabelColor = gold.copy(alpha = 0.82f),
-        cursorColor = brightGold,
-        focusedBorderColor = brightGold,
-        unfocusedBorderColor = gold.copy(alpha = 0.58f),
-        focusedContainerColor = ink.copy(alpha = 0.72f),
-        unfocusedContainerColor = deepCopper.copy(alpha = 0.58f),
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    0.0f to Color(0xFF3A1D0C),
-                    0.48f to Color(0xFF160B05),
-                    1.0f to Color(0xFF050302),
-                )
-            )
-            .padding(18.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scroll),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("SETTINGS", color = ivory, style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = onDismiss, colors = textButtonColors) { Text("Close") }
-            }
-
-            Text("About", color = gold, style = MaterialTheme.typography.titleMedium)
-            Text("Yantra is free software licensed under AGPL-3.0.", color = ivory.copy(alpha = 0.86f))
-            Button(
-                onClick = { openRepository(context) },
-                colors = buttonColors,
-            ) {
-                Text("Open Source Repository")
-            }
-
-            Button(
-                onClick = { savedDaysOpen = !savedDaysOpen },
-                colors = buttonColors,
-            ) {
-                Text(if (savedDaysOpen) "Hide Your Days" else "See Your Days")
-            }
-            if (savedDaysOpen) {
-                SavedDaysList(
-                    events = events,
-                    specialDays = specialDays,
-                    textColor = ivory,
-                    accentColor = brightGold,
-                    textButtonColors = textButtonColors,
-                    onEventsChanged = onEventsChanged,
-                    onSpecialDaysChanged = onSpecialDaysChanged,
-                    onMessage = { message = it },
-                )
-            }
-
-            Text("Logo", color = gold, style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (logoBitmap != null) {
-                    Image(
-                        bitmap = logoBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .width(72.dp)
-                            .height(72.dp),
-                    )
-                }
-                Button(onClick = { picker.launch("image/*") }, colors = buttonColors) { Text(if (logoPath == null) "Add Logo" else "Change Logo") }
-                if (logoPath != null) {
-                    TextButton(onClick = onLogoCleared, colors = textButtonColors) { Text("Remove") }
-                }
-            }
-
-            Text("User Events", color = gold, style = MaterialTheme.typography.titleMedium)
-            if (events.isNotEmpty() && selectedIndex !in events.indices) {
-                TextButton(
-                    onClick = { selectedIndex = 0 },
-                    colors = textButtonColors,
-                ) {
-                    Text("Edit Saved Event")
-                }
-            }
-            if (selectedIndex in events.indices) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (events.size > 1) {
-                        TextButton(onClick = { selectedIndex = (selectedIndex - 1).floorMod(events.size) }, colors = textButtonColors) { Text("Previous") }
-                    }
-                    Text("${selectedIndex + 1} / ${events.size}", color = ivory)
-                    if (events.size > 1) {
-                        TextButton(onClick = { selectedIndex = (selectedIndex + 1).floorMod(events.size) }, colors = textButtonColors) { Text("Next") }
-                    }
-                }
-            }
-            OutlinedTextField(
-                value = draft.name,
-                onValueChange = { draft = draft.copy(name = it) },
-                label = { Text("Event name") },
-                singleLine = true,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            CycleCriterion("Maasa", draft.month, listOf(null) + CalendarCatalog.lunarMonths.map { it.name }) {
-                draft = draft.copy(month = it)
-            }
-            CycleCriterion("Paksha", draft.paksha, listOf(null, "Shukla", "Krishna")) {
-                draft = draft.copy(paksha = it)
-            }
-            CycleCriterion("Tithi", draft.tithiIndex?.let { CalendarCatalog.tithis[it].name }, listOf(null) + CalendarCatalog.tithis.map { it.name }) { value ->
-                draft = draft.copy(tithiIndex = value?.let { CalendarCatalog.tithis.indexOfFirst { tithi -> tithi.name == it } }?.takeIf { it >= 0 })
-            }
-            CycleCriterion("Nakshatra", draft.nakshatra, listOf(null) + CalendarCatalog.nakshatras.map { it.name }) {
-                draft = draft.copy(nakshatra = it)
-            }
-            CycleCriterion("Rashi", draft.rashi, listOf(null) + CalendarCatalog.rashis.map { it.name }) {
-                draft = draft.copy(rashi = it)
-            }
-            Text("Select at least two criteria.", color = ivory.copy(alpha = 0.72f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        val event = draft.toEvent()
-                        if (event == null) {
-                            message = "Name and at least two criteria are required."
-                            return@Button
-                        }
-                        val next = events.toMutableList()
-                        if (selectedIndex in next.indices) {
-                            next[selectedIndex] = event
-                        } else {
-                            next += event
-                            selectedIndex = next.lastIndex
-                        }
-                        onEventsChanged(next)
-                        message = "Event saved."
-                    },
-                    colors = buttonColors,
-                ) {
-                    Text(if (selectedIndex in events.indices) "Save Event" else "Add Event")
-                }
-                TextButton(
-                    onClick = {
-                        selectedIndex = -1
-                        draft = UserEvent().toDraft()
-                    },
-                    colors = textButtonColors,
-                ) {
-                    Text("New")
-                }
-                if (selectedIndex in events.indices) {
-                    TextButton(
-                        onClick = {
-                            val next = events.toMutableList().also { it.removeAt(selectedIndex) }
-                            onEventsChanged(next)
-                            selectedIndex = if (next.isEmpty()) -1 else selectedIndex.coerceAtMost(next.lastIndex)
-                            message = "Event deleted."
-                        },
-                        colors = textButtonColors,
-                    ) {
-                        Text("Delete")
-                    }
-                }
-            }
-
-            Text("Import JSON / CSV / TSV", color = gold, style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
-                value = importText,
-                onValueChange = { importText = it },
-                label = { Text("Paste events") },
-                minLines = 4,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = {
-                    val imported = parseUserEvents(importText)
-                    if (imported.isEmpty()) {
-                        message = "No valid events found. Include name plus at least two criteria."
-                    } else {
-                        val next = (events + imported).distinctBy { it.identityKey() }
-                        onEventsChanged(next)
-                        selectedIndex = next.lastIndex
-                        importText = ""
-                        message = "Imported ${imported.size} event(s)."
-                    }
-                },
-                colors = buttonColors,
-            ) {
-                Text("Import Events")
-            }
-            message?.let { Text(it, color = ivory) }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-private fun SavedDaysList(
-    events: List<UserEvent>,
-    specialDays: List<SpecialDay>,
-    textColor: Color,
-    accentColor: Color,
-    textButtonColors: androidx.compose.material3.ButtonColors,
-    onEventsChanged: (List<UserEvent>) -> Unit,
-    onSpecialDaysChanged: (List<SpecialDay>) -> Unit,
-    onMessage: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("Your Days", color = accentColor, style = MaterialTheme.typography.titleMedium)
-        if (specialDays.isEmpty() && events.isEmpty()) {
-            Text("None saved", color = textColor.copy(alpha = 0.72f))
-            return@Column
-        }
-        specialDays.forEach { day ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    "${day.name} - ${day.month} ${day.paksha} ${day.tithiNumber}",
-                    color = textColor,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = {
-                        onSpecialDaysChanged(specialDays.filterNot { it == day })
-                        onMessage("Deleted ${day.name}.")
-                    },
-                    colors = textButtonColors,
-                ) {
-                    Text("Delete")
-                }
-            }
-        }
-        events.forEach { event ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    "${event.name} - ${event.criteriaLabel()}",
-                    color = textColor,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = {
-                        onEventsChanged(events.filterNot { it == event })
-                        onMessage("Deleted ${event.name}.")
-                    },
-                    colors = textButtonColors,
-                ) {
-                    Text("Delete")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CycleCriterion(
-    label: String,
-    value: String?,
-    options: List<String?>,
-    onValue: (String?) -> Unit,
-) {
-    val current = options.indexOf(value).takeIf { it >= 0 } ?: 0
-    val textButtonColors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFE2A3))
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(label, color = Color(0xFFFFE8B0), modifier = Modifier.width(92.dp))
-        TextButton(onClick = { onValue(options[(current - 1).floorMod(options.size)]) }, colors = textButtonColors) { Text("-") }
-        Text(value ?: "Any", color = Color(0xFFFFE8B0), modifier = Modifier.weight(1f))
-        TextButton(onClick = { onValue(options[(current + 1).floorMod(options.size)]) }, colors = textButtonColors) { Text("+") }
-    }
-}
-
-private data class UserEvent(
-    val name: String = "",
-    val month: String? = null,
-    val paksha: String? = null,
-    val tithiIndex: Int? = null,
-    val nakshatra: String? = null,
-    val rashi: String? = null,
-) {
-    fun matches(state: YantraState): Boolean =
-        criteriaCount() >= 2 &&
-            (month == null || month == state.lunarMonth) &&
-            (paksha == null || paksha == state.paksha) &&
-            (tithiIndex == null || tithiIndex == state.tithi.index) &&
-            (nakshatra == null || nakshatra == state.nakshatra.name) &&
-            (rashi == null || rashi == state.solarRashi.name || rashi == state.lunarRashi.name)
-
-    fun criteriaCount(): Int = listOf(month, paksha, tithiIndex, nakshatra, rashi).count { it != null }
-
-    fun identityKey(): String = listOf(name, month, paksha, tithiIndex?.toString(), nakshatra, rashi).joinToString("|")
-
-    fun criteriaLabel(): String = listOfNotNull(
-        month?.let { "Maasa $it" },
-        paksha,
-        tithiIndex?.let { CalendarCatalog.tithis[it].name },
-        nakshatra?.let { "Nakshatra $it" },
-        rashi?.let { "Rashi $it" },
-    ).joinToString(", ")
-
-    fun toJson(): JSONObject = JSONObject().apply {
-        put("name", name)
-        month?.let { put("month", it) }
-        paksha?.let { put("paksha", it) }
-        tithiIndex?.let { put("tithiIndex", it) }
-        nakshatra?.let { put("nakshatra", it) }
-        rashi?.let { put("rashi", it) }
-    }
-
-    fun toDraft(): UserEventDraft = UserEventDraft(name, month, paksha, tithiIndex, nakshatra, rashi)
-}
-
-private data class UserEventDraft(
-    val name: String = "",
-    val month: String? = null,
-    val paksha: String? = null,
-    val tithiIndex: Int? = null,
-    val nakshatra: String? = null,
-    val rashi: String? = null,
-) {
-    fun toEvent(): UserEvent? {
-        val event = UserEvent(name.trim(), month, paksha, tithiIndex, nakshatra, rashi)
-        return event.takeIf { it.name.isNotBlank() && it.criteriaCount() >= 2 }
-    }
-}
-
-private const val USER_SETTINGS_PREFS = "yantra_user_settings"
-private const val USER_EVENTS_KEY = "events_json"
-private const val USER_LOGO_KEY = "logo_path"
-private const val USER_LOGO_FILE = "user_logo"
-
-private fun loadUserEvents(context: Context): List<UserEvent> {
-    val raw = context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE).getString(USER_EVENTS_KEY, null) ?: return emptyList()
-    return runCatching {
-        val array = JSONArray(raw)
-        List(array.length()) { index -> userEventFromJson(array.getJSONObject(index)) }
-            .filter { it.name.isNotBlank() && it.criteriaCount() >= 2 }
-    }.getOrDefault(emptyList())
-}
-
-private fun saveUserEvents(context: Context, events: List<UserEvent>) {
-    val array = JSONArray()
-    events.forEach { array.put(it.toJson()) }
-    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString(USER_EVENTS_KEY, array.toString())
-        .apply()
-}
-
-private fun userEventFromJson(json: JSONObject): UserEvent =
-    UserEvent(
-        name = json.optString("name").trim(),
-        month = canonical(json.optNullableString("month") ?: json.optNullableString("maasa"), CalendarCatalog.lunarMonths.map { it.name }),
-        paksha = canonical(json.optNullableString("paksha"), listOf("Shukla", "Krishna")),
-        tithiIndex = json.optTithiIndex(),
-        nakshatra = canonical(json.optNullableString("nakshatra") ?: json.optNullableString("naksatra"), CalendarCatalog.nakshatras.map { it.name }),
-        rashi = canonical(json.optNullableString("rashi"), CalendarCatalog.rashis.map { it.name }),
-    )
-
-private fun JSONObject.optNullableString(name: String): String? =
-    if (has(name) && !isNull(name)) optString(name).trim().takeIf { it.isNotBlank() && !it.equals("any", true) } else null
-
-private fun JSONObject.optTithiIndex(): Int? {
-    if (has("tithiIndex") && !isNull("tithiIndex")) return optInt("tithiIndex").takeIf { it in 0..29 }
-    val paksha = optNullableString("paksha")
-    val raw = optNullableString("tithi") ?: optNullableString("tithiNumber") ?: return null
-    return parseTithiIndex(raw, paksha)
-}
-
-private fun parseUserEvents(raw: String): List<UserEvent> {
-    val trimmed = raw.trim()
-    if (trimmed.isBlank()) return emptyList()
-    return if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-        parseUserEventsJson(trimmed)
-    } else {
-        parseUserEventsDelimited(trimmed)
-    }.filter { it.name.isNotBlank() && it.criteriaCount() >= 2 }
-}
-
-private fun parseUserEventsJson(raw: String): List<UserEvent> =
-    runCatching {
-        val array = if (raw.startsWith("[")) JSONArray(raw) else JSONArray().put(JSONObject(raw))
-        List(array.length()) { index -> userEventFromJson(array.getJSONObject(index)) }
-    }.getOrDefault(emptyList())
-
-private fun parseUserEventsDelimited(raw: String): List<UserEvent> {
-    val lines = raw.lines().map { it.trim() }.filter { it.isNotBlank() }
-    if (lines.size < 2) return emptyList()
-    val delimiter = if (lines.first().contains('\t')) '\t' else ','
-    val headers = lines.first().split(delimiter).map { it.trim().lowercase() }
-    return lines.drop(1).mapNotNull { line ->
-        val values = line.split(delimiter).map { it.trim() }
-        val map = headers.mapIndexedNotNull { index, header -> values.getOrNull(index)?.let { header to it } }.toMap()
-        val paksha = canonical(map["paksha"].normalizeCriterion(), listOf("Shukla", "Krishna"))
-        UserEvent(
-            name = map["name"].orEmpty().trim(),
-            month = canonical((map["month"] ?: map["maasa"]).normalizeCriterion(), CalendarCatalog.lunarMonths.map { it.name }),
-            paksha = paksha,
-            tithiIndex = (map["tithiindex"]?.toIntOrNull()?.takeIf { it in 0..29 })
-                ?: parseTithiIndex(map["tithi"] ?: map["tithinumber"], paksha),
-            nakshatra = canonical((map["nakshatra"] ?: map["naksatra"]).normalizeCriterion(), CalendarCatalog.nakshatras.map { it.name }),
-            rashi = canonical(map["rashi"].normalizeCriterion(), CalendarCatalog.rashis.map { it.name }),
-        )
-    }
-}
-
-private fun String?.normalizeCriterion(): String? =
-    this?.trim()?.takeIf { it.isNotBlank() && !it.equals("any", true) }
-
-private fun canonical(value: String?, options: List<String>): String? =
-    value?.let { candidate -> options.firstOrNull { it.equals(candidate, true) } }
-
-private fun parseTithiIndex(raw: String?, paksha: String?): Int? {
-    val value = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
-    CalendarCatalog.tithis.indexOfFirst { it.name.equals(value, true) }.takeIf { it >= 0 }?.let { return it }
-    val number = value.filter { it.isDigit() }.toIntOrNull()?.takeIf { it in 1..30 } ?: return null
-    if (number > 15) return number - 1
-    return when (paksha?.lowercase()) {
-        "krishna" -> number + 14
-        else -> number - 1
-    }
-}
-
-private fun loadUserLogoPath(context: Context): String? =
-    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .getString(USER_LOGO_KEY, null)
-        ?.takeIf { File(it).exists() }
-
-private fun saveUserLogoPath(context: Context, path: String?) {
-    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString(USER_LOGO_KEY, path)
-        .apply()
-}
-
-private fun saveUserLogo(context: Context, uri: Uri): String {
-    val destination = File(context.filesDir, USER_LOGO_FILE)
-    context.contentResolver.openInputStream(uri)?.use { input ->
-        destination.outputStream().use { output -> input.copyTo(output) }
-    }
-    return destination.absolutePath
-}
-
-private fun clearUserLogo(context: Context) {
-    File(context.filesDir, USER_LOGO_FILE).delete()
-    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .remove(USER_LOGO_KEY)
-        .apply()
-}
-
-private fun loadLogoBitmap(path: String): ImageBitmap? =
-    runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
-
-private const val YANTRA_REPOSITORY_URL = "https://github.com/octotus/Yantra"
-
-private fun openRepository(context: Context) {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(YANTRA_REPOSITORY_URL))
-    runCatching { context.startActivity(intent) }
-}
-
-private fun Int.floorMod(modulus: Int): Int = Math.floorMod(this, modulus)
-
-private object FestivalCatalog {
-    private val definitions = listOf(
-        FestivalDefinition("Makara Sankranti", FestivalRank.Major, solarRashi = "Makara", previousSolarRashi = "Dhanu", astronomicalDefinition = "Solar ingress into sidereal Makara."),
-        FestivalDefinition("Chaitra New Year", FestivalRank.Major, month = "Chaitra", paksha = "Shukla", tithiNumber = 1, astronomicalDefinition = "Chaitra Shukla Pratipada."),
-        FestivalDefinition("Rama Navami", FestivalRank.Major, month = "Chaitra", paksha = "Shukla", tithiNumber = 9, astronomicalDefinition = "Chaitra Shukla Navami."),
-        FestivalDefinition("Akshaya Tritiya", FestivalRank.Major, month = "Vaishakha", paksha = "Shukla", tithiNumber = 3, astronomicalDefinition = "Vaishakha Shukla Tritiya."),
-        FestivalDefinition("Krishna Janmashtami", FestivalRank.Major, month = "Bhadrapada", paksha = "Krishna", tithiNumber = 8, astronomicalDefinition = "Bhadrapada Krishna Ashtami."),
-        FestivalDefinition("Navaratri Begins", FestivalRank.Major, month = "Ashwin", paksha = "Shukla", tithiNumber = 1, astronomicalDefinition = "Ashwin Shukla Pratipada."),
-        FestivalDefinition("Vijayadashami", FestivalRank.Major, month = "Ashwin", paksha = "Shukla", tithiNumber = 10, astronomicalDefinition = "Ashwin Shukla Dashami."),
-        FestivalDefinition("Diwali", FestivalRank.Major, month = "Kartika", paksha = "Krishna", tithiNumber = 15, astronomicalDefinition = "Kartika Krishna Amavasya."),
-        FestivalDefinition("Karthika Deepam", FestivalRank.Major, month = "Kartika", paksha = "Shukla", tithiNumber = 15, astronomicalDefinition = "Kartika Shukla Purnima, traditionally associated with Krittika nakshatra."),
-        FestivalDefinition("Holi", FestivalRank.Minor, month = "Phalguna", paksha = "Shukla", tithiNumber = 15, astronomicalDefinition = "Phalguna Shukla Purnima."),
-        FestivalDefinition("Thiruvadirai", FestivalRank.Major, solarRashi = "Dhanu", nakshatra = "Ardra", astronomicalDefinition = "Tamil Margazhi / solar Dhanu when Ardra (Thiruvathirai) nakshatra prevails, traditionally on or near the full moon night."),
-        FestivalDefinition("Vaikuntha Ekadashi", FestivalRank.Major, solarRashi = "Dhanu", paksha = "Shukla", tithiNumber = 11, astronomicalDefinition = "Solar Dhanu masa, Shukla Paksha, Ekadashi tithi."),
-        FestivalDefinition("Maha Shivaratri", FestivalRank.Major, month = "Phalguna", paksha = "Krishna", tithiNumber = 14, astronomicalDefinition = "Phalguna Krishna Chaturdashi."),
-        FestivalDefinition("Hanuman Jayanti", FestivalRank.Minor, month = "Chaitra", paksha = "Shukla", tithiNumber = 15, astronomicalDefinition = "Chaitra Shukla Purnima."),
-        FestivalDefinition("Guru Purnima", FestivalRank.Minor, month = "Ashadha", paksha = "Shukla", tithiNumber = 15, astronomicalDefinition = "Ashadha Shukla Purnima."),
-        FestivalDefinition("Nag Panchami", FestivalRank.Minor, month = "Shravana", paksha = "Shukla", tithiNumber = 5, astronomicalDefinition = "Shravana Shukla Panchami."),
-        FestivalDefinition("Upakarma", FestivalRank.Major, month = "Shravana", paksha = "Shukla", tithiNumber = 15, astronomicalDefinition = "Shravana Shukla Purnima."),
-        FestivalDefinition("Ganesh Chaturthi", FestivalRank.Major, month = "Bhadrapada", paksha = "Shukla", tithiNumber = 4, astronomicalDefinition = "Bhadrapada Shukla Chaturthi."),
-        FestivalDefinition("Vasant Panchami", FestivalRank.Minor, month = "Magha", paksha = "Shukla", tithiNumber = 5, astronomicalDefinition = "Magha Shukla Panchami."),
-        FestivalDefinition("Gita Jayanti", FestivalRank.Minor, month = "Margashirsha", paksha = "Shukla", tithiNumber = 11, astronomicalDefinition = "Margashirsha Shukla Ekadashi."),
-        FestivalDefinition("Ekadashi", FestivalRank.Minor, tithiNumber = 11, astronomicalDefinition = "Ekadashi tithi in either paksha."),
-        FestivalDefinition("Pradosham", FestivalRank.Minor, tithiNumber = 13, astronomicalDefinition = "Trayodashi tithi in either paksha."),
-    )
-
-    fun match(state: YantraState, previousState: YantraState): FestivalDefinition? {
-        val tithiNumber = (state.tithi.index % 15) + 1
-        return definitions.firstOrNull { festival ->
-            (festival.month == null || festival.month == state.lunarMonth) &&
-                (festival.paksha == null || festival.paksha == state.paksha) &&
-                (festival.tithiNumber == null || festival.tithiNumber == tithiNumber) &&
-                (festival.solarRashi == null || festival.solarRashi == state.solarRashi.name) &&
-                (festival.previousSolarRashi == null || festival.previousSolarRashi == previousState.solarRashi.name) &&
-                (festival.nakshatra == null || festival.nakshatra == state.nakshatra.name)
-        }
-    }
-}
-
-private fun cryptexLayout(width: Float, height: Float): CryptexLayout {
-    val panelWidth = min(width * 0.86f, height * 0.62f)
-    val panelHeight = panelWidth * 0.58f
-    val panelCenter = Offset(width / 2f, height / 2f)
-    val outerRect = Rect(
-        panelCenter.x - panelWidth / 2f,
-        panelCenter.y - panelHeight / 2f,
-        panelCenter.x + panelWidth / 2f,
-        panelCenter.y + panelHeight / 2f,
-    )
-    val gap = panelWidth * 0.035f
-    val columnWidth = (panelWidth - gap * 4f) / 3f
-    val columnTop = outerRect.top + panelHeight * 0.17f
-    val columnHeight = panelHeight * 0.58f
-    val columns = List(3) { index ->
-        val left = outerRect.left + gap + index * (columnWidth + gap)
-        Rect(left, columnTop, left + columnWidth, columnTop + columnHeight)
-    }
-    val commitRect = Rect(
-        outerRect.left + panelWidth * 0.18f,
-        outerRect.bottom - panelHeight * 0.18f,
-        outerRect.right - panelWidth * 0.18f,
-        outerRect.bottom - panelHeight * 0.05f,
-    )
-    return CryptexLayout(outerRect, columns, commitRect)
-}
-
-private data class YantraLayout(
-    val center: Offset,
-    val radius: Float,
-    val dateHitRect: Rect,
-    val settingsHitRect: Rect,
-    val lotusCenter: Offset,
-    val lotusRadius: Float,
-)
-
-private enum class AnnotationKind {
-    Rashi,
-    Masa,
-    Nakshatra,
-}
-
-private data class YantraAnnotation(
-    val kind: AnnotationKind,
-    val index: Int,
-    val name: String,
-)
-
-private fun yantraLayout(width: Float, height: Float): YantraLayout {
-    val radius = min(width * 0.462f, height * 0.34f)
-    val ringWidth = radius * 0.135f
-    val tithiRingWidth = ringWidth * 1.15f
-    val tithiRingRadius = radius - ringWidth * 0.35f
-    val faceRadius = tithiRingRadius + tithiRingWidth * 0.42f
-    val bodyRadius = faceRadius + ringWidth * 0.38f
-    val topTextOffset = ringWidth * 0.48f
-    val bottomTextOffset = ringWidth * 1.72f + lotusRadiusForLayout(ringWidth) + radius * 0.2592f
-    val centerY = min(height * 0.47f, height - bodyRadius - bottomTextOffset - ringWidth * 1.1f)
-        .coerceAtLeast(bodyRadius + topTextOffset + ringWidth * 0.65f)
-    val center = Offset(width / 2f, centerY)
-    val lotusCenter = Offset(center.x, center.y + bodyRadius + ringWidth * 1.72f)
-    val lotusRadius = lotusRadiusForLayout(ringWidth)
-    val dateCenter = Offset(center.x, center.y + bodyRadius + bottomTextOffset)
-    val dateHitRect = Rect(
-        dateCenter.x - min(width * 0.44f, radius * 0.95f),
-        dateCenter.y - ringWidth * 0.62f,
-        dateCenter.x + min(width * 0.44f, radius * 0.95f),
-        dateCenter.y + ringWidth * 0.62f,
-    )
-    val gearSize = min(width, height) * 0.0665f
-    val gearCenter = Offset(width * 0.09f, height - gearSize * 2.35f)
-    val settingsHitRect = Rect(
-        gearCenter.x - gearSize * 0.72f,
-        gearCenter.y - gearSize * 0.72f,
-        gearCenter.x + gearSize * 0.72f,
-        gearCenter.y + gearSize * 0.72f,
-    )
-    return YantraLayout(center, radius, dateHitRect, settingsHitRect, lotusCenter, lotusRadius)
-}
-
-private fun lotusRadiusForLayout(ringWidth: Float): Float = ringWidth * 0.76f
-
-@Composable
 private fun YantraInstrument(
     state: YantraState,
     sigilImages: SigilImages,
+    monthNameSet: MonthNameSet,
     lunarEmphasis: Boolean,
     festival: FestivalDefinition?,
     observanceLabel: String?,
@@ -1158,7 +329,7 @@ private fun YantraInstrument(
                     } else if (tap.isInRect(layout.dateHitRect)) {
                         onDateTap()
                     } else {
-                        hitAnnotation(tap, layout.center, ringWidth, nakshatraRingRadius, monthRingRadius, rashiRingRadius, state)?.let(onAnnotation)
+                        hitAnnotation(tap, layout.center, ringWidth, nakshatraRingRadius, monthRingRadius, rashiRingRadius, state, monthNameSet)?.let(onAnnotation)
                     }
                 }
             )
@@ -1208,7 +379,7 @@ private fun YantraInstrument(
             )
             drawRing(27, state.nakshatra.index, nakshatraRingRadius, ringWidth, bronze, activeGold.copy(alpha = 0.22f + lunarBoost * 0.08f))
             drawMonthRing(
-                sectors = state.monthSectors,
+                sectors = localizedMonthSectors(state.monthSectors, monthNameSet),
                 activeIndex = state.month.index,
                 radius = monthRingRadius,
                 width = ringWidth,
@@ -1393,53 +564,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSettingsGear(
     drawCircle(color, radius, center, style = Stroke(width = size * 0.09f))
     drawCircle(color, radius * 0.36f, center, style = Stroke(width = size * 0.07f))
 }
-
-private fun hitAnnotation(
-    tap: Offset,
-    center: Offset,
-    ringWidth: Float,
-    nakshatraRingRadius: Float,
-    monthRingRadius: Float,
-    rashiRingRadius: Float,
-    state: YantraState,
-): YantraAnnotation? {
-    val distance = hypot(tap.x - center.x, tap.y - center.y)
-    return when {
-        distance.isInRing(rashiRingRadius, ringWidth) -> {
-            val fraction = angleToFraction(tap, center)
-            val index = state.lagnaSectors.firstOrNull { sector ->
-                fraction >= sector.startFraction && fraction < sector.startFraction + sector.durationFraction
-            }?.index ?: angleToIndex(tap, center, 12)
-            val rashi = CalendarCatalog.rashis[index]
-            YantraAnnotation(AnnotationKind.Rashi, index, rashi.name)
-        }
-        distance.isInRing(monthRingRadius, ringWidth) -> {
-            val fraction = angleToFraction(tap, center)
-            val sector = state.monthSectors.firstOrNull { month ->
-                val start = state.monthSectors.takeWhile { it.index != month.index }.sumOf { it.arcDegrees } / 360.0
-                fraction >= start && fraction < start + month.arcDegrees / 360.0
-            } ?: state.monthSectors.lastOrNull()
-            sector?.let { YantraAnnotation(AnnotationKind.Masa, it.index, it.name) }
-        }
-        distance.isInRing(nakshatraRingRadius, ringWidth) -> {
-            val index = angleToIndex(tap, center, 27)
-            val nakshatra = CalendarCatalog.nakshatras[index]
-            YantraAnnotation(AnnotationKind.Nakshatra, index, nakshatra.name)
-        }
-        else -> null
-    }
-}
-
-private fun Float.isInRing(radius: Float, width: Float): Boolean =
-    this >= radius - width * 0.56f && this <= radius + width * 0.56f
-
-private fun angleToFraction(tap: Offset, center: Offset): Double {
-    val angle = Math.toDegrees(kotlin.math.atan2((tap.y - center.y).toDouble(), (tap.x - center.x).toDouble()))
-    return ((angle + 90.0 + 360.0) % 360.0) / 360.0
-}
-
-private fun angleToIndex(tap: Offset, center: Offset, count: Int): Int =
-    floor(angleToFraction(tap, center) * count).toInt().coerceIn(0, count - 1)
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
     annotation: YantraAnnotation,
@@ -1880,118 +1004,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBowIcon(center:
     )
     drawLine(color.copy(alpha = 0.88f), center + Offset(-size * 0.18f, -size * 0.42f), center + Offset(-size * 0.18f, size * 0.42f), strokeWidth = size * 0.03f)
     drawLine(color, center + Offset(-size * 0.18f, 0f), center + Offset(size * 0.36f, 0f), strokeWidth = size * 0.055f, cap = StrokeCap.Round)
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCryptexPicker(
-    layout: CryptexLayout,
-    year: Int,
-    month: Int,
-    day: Int,
-) {
-    drawRect(Color.Black.copy(alpha = 0.58f))
-    val rect = layout.outerRect
-    val corner = CornerRadius(rect.height * 0.08f, rect.height * 0.08f)
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            0.0f to Color(0xFF1C0D06),
-            0.28f to Color(0xFF71451F),
-            0.52f to Color(0xFFD4944D),
-            0.78f to Color(0xFF4B2711),
-            1.0f to Color(0xFF180B05),
-            start = Offset(rect.left, rect.top),
-            end = Offset(rect.right, rect.bottom),
-        ),
-        topLeft = rect.topLeft,
-        size = Size(rect.width, rect.height),
-        cornerRadius = corner,
-    )
-    drawRoundRect(
-        color = Color(0xFFFFE5A3).copy(alpha = 0.84f),
-        topLeft = rect.topLeft,
-        size = Size(rect.width, rect.height),
-        cornerRadius = corner,
-        style = Stroke(width = 1.5.dp.toPx()),
-    )
-
-    val values = listOf(
-        RollerValues((year - 1).toString(), year.toString(), (year + 1).toString()),
-        RollerValues(monthName(month - 1), monthName(month), monthName(month + 1)),
-        RollerValues(previousDay(day, year, month).toString().padStart(2, '0'), day.toString().padStart(2, '0'), nextDay(day, year, month).toString().padStart(2, '0')),
-    )
-    layout.columns.forEachIndexed { index, column ->
-        drawCryptexColumn(column, values[index])
-    }
-    drawRoundRect(
-        color = Color(0xFF0A0503).copy(alpha = 0.62f),
-        topLeft = layout.commitRect.topLeft,
-        size = Size(layout.commitRect.width, layout.commitRect.height),
-        cornerRadius = CornerRadius(layout.commitRect.height * 0.45f, layout.commitRect.height * 0.45f),
-    )
-    drawRoundRect(
-        color = Color(0xFFFFE5A3).copy(alpha = 0.58f),
-        topLeft = layout.commitRect.topLeft,
-        size = Size(layout.commitRect.width, layout.commitRect.height),
-        cornerRadius = CornerRadius(layout.commitRect.height * 0.45f, layout.commitRect.height * 0.45f),
-        style = Stroke(width = 0.9.dp.toPx()),
-    )
-    drawIntoCanvas { canvas ->
-        drawEmbossedText(
-            native = canvas.nativeCanvas,
-            text = "SET DATE",
-            x = layout.commitRect.center.x,
-            y = layout.commitRect.center.y + layout.commitRect.height * 0.18f,
-            size = layout.commitRect.height * 0.48f,
-            color = Color(0xFFFFE3A5),
-            bold = true,
-        )
-    }
-}
-
-private data class RollerValues(
-    val previous: String,
-    val current: String,
-    val next: String,
-)
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCryptexColumn(
-    rect: Rect,
-    values: RollerValues,
-) {
-    val corner = CornerRadius(rect.width * 0.22f, rect.width * 0.22f)
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            0.0f to Color(0xFF160A04),
-            0.22f to Color(0xFFB8783B),
-            0.5f to Color(0xFFE7B66D),
-            0.78f to Color(0xFF7E451D),
-            1.0f to Color(0xFF130804),
-            start = Offset(rect.left, rect.top),
-            end = Offset(rect.right, rect.top),
-        ),
-        topLeft = rect.topLeft,
-        size = Size(rect.width, rect.height),
-        cornerRadius = corner,
-    )
-    drawRoundRect(
-        color = Color(0xFF0A0503).copy(alpha = 0.42f),
-        topLeft = Offset(rect.left, rect.top + rect.height * 0.34f),
-        size = Size(rect.width, rect.height * 0.32f),
-        cornerRadius = CornerRadius(rect.width * 0.14f, rect.width * 0.14f),
-    )
-    drawRoundRect(
-        color = Color(0xFFFFE5A3).copy(alpha = 0.6f),
-        topLeft = rect.topLeft,
-        size = Size(rect.width, rect.height),
-        cornerRadius = corner,
-        style = Stroke(width = 1.dp.toPx()),
-    )
-    drawIntoCanvas { canvas ->
-        val native = canvas.nativeCanvas
-        val x = rect.center.x
-        drawEmbossedText(native, values.previous, x, rect.top + rect.height * 0.24f, rect.height * 0.14f, Color(0xFFFFE3A5).copy(alpha = 0.56f), false)
-        drawEmbossedText(native, values.current, x, rect.center.y + rect.height * 0.07f, rect.height * 0.23f, Color(0xFFFFF0BD), true)
-        drawEmbossedText(native, values.next, x, rect.bottom - rect.height * 0.16f, rect.height * 0.14f, Color(0xFFFFE3A5).copy(alpha = 0.56f), false)
-    }
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDeviceLighting(
@@ -2827,17 +1839,4 @@ private fun drawEmbossedText(
     native.drawText(text, x + size * 0.04f, y + size * 0.04f, shadowPaint)
     native.drawText(text, x - size * 0.025f, y - size * 0.025f, lightPaint)
     native.drawText(text, x, y, textPaint)
-}
-
-private fun monthName(month: Int): String {
-    val normalized = Math.floorMod(month - 1, 12) + 1
-    return java.time.Month.of(normalized).name.take(3)
-}
-
-private fun previousDay(day: Int, year: Int, month: Int): Int =
-    if (day <= 1) YearMonth.of(year, month).lengthOfMonth() else day - 1
-
-private fun nextDay(day: Int, year: Int, month: Int): Int {
-    val monthLength = YearMonth.of(year, month).lengthOfMonth()
-    return if (day >= monthLength) 1 else day + 1
 }
