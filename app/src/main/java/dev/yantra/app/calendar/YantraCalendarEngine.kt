@@ -10,6 +10,8 @@ import kotlin.math.floor
 
 class YantraCalendarEngine(
     private val astronomyEngine: AstronomyEngine = AstronomyEngine(),
+    private val calendarLocaleRule: CalendarLocaleRule = CalendarCatalog.calendarLocaleRules.first(),
+    private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
 ) {
     private companion object {
         private const val SAMVATSARA_YEAR_OFFSET = 53
@@ -42,7 +44,13 @@ class YantraCalendarEngine(
         val yogaIndex = floor(normalizeDegrees(siderealSun + siderealMoon) / (360.0 / 27.0)).toInt().coerceIn(0, 26)
         val samvatsaraIndex = resolveSamvatsaraIndex(monthResolution)
         val monthSectors = monthResolution.sectors
-        val activeMonth = monthSectors[monthResolution.activeMonthIndex]
+        val paksha = if (tithiIndex < 15) "Shukla" else "Krishna"
+        val activeMonthIndex = when {
+            monthReckoning == MonthReckoning.Purnimanta && paksha == "Krishna" ->
+                Math.floorMod(monthResolution.activeMonthIndex + 1, 12)
+            else -> monthResolution.activeMonthIndex
+        }
+        val activeMonth = monthSectors[activeMonthIndex]
         val siderealAscendant = celestial.ascendantLongitude?.let { ascendant ->
             if (celestial.longitudesAreSidereal) ascendant else normalizeDegrees(ascendant - ayanamsa)
         }
@@ -68,7 +76,7 @@ class YantraCalendarEngine(
             lagnaRashi = lagnaRashiIndex?.let { CalendarCatalog.rashis[it] },
             lagnaDayFraction = dayFraction(dateTime),
             samvatsara = CalendarCatalog.samvatsaras[samvatsaraIndex],
-            paksha = if (tithiIndex < 15) "Shukla" else "Krishna",
+            paksha = paksha,
             lunarMonth = activeMonth.name,
             yoga = CalendarCatalog.yogas[yogaIndex],
         )
@@ -145,7 +153,7 @@ class YantraCalendarEngine(
         observer: Observer,
         julianDay: Double,
     ): MonthResolution {
-        val cacheKey = dateTime.toLocalDate().toString()
+        val cacheKey = listOf(dateTime.toLocalDate().toString(), calendarLocaleRule.id, monthReckoning.id).joinToString("|")
         monthResolutionCache[cacheKey]?.let { return it }
 
         val newMoons = findNewMoons(julianDay - 430.0, julianDay + 430.0, dateTime, observer, julianDay)
@@ -163,10 +171,11 @@ class YantraCalendarEngine(
         }
         val activeIndex = labeled.indexOfLast { julianDay >= it.lunation.start && julianDay < it.lunation.end }
             .takeIf { it >= 0 } ?: return cacheMonthResolution(cacheKey, fallbackMonthResolution(dateTime, observer))
-        val yearStart = labeled.withIndex().filter { it.index <= activeIndex && it.value.monthIndex == 0 }.maxByOrNull { it.index }?.index
+        val newYearMonthIndex = calendarLocaleRule.newYearMonthIndex.coerceIn(0, 11)
+        val yearStart = labeled.withIndex().filter { it.index <= activeIndex && it.value.monthIndex == newYearMonthIndex }.maxByOrNull { it.index }?.index
             ?: labeled.withIndex().filter { it.index <= activeIndex }.maxByOrNull { it.index }?.index
             ?: return cacheMonthResolution(cacheKey, fallbackMonthResolution(dateTime, observer))
-        val yearEnd = labeled.withIndex().firstOrNull { it.index > yearStart && it.value.monthIndex == 0 }?.index
+        val yearEnd = labeled.withIndex().firstOrNull { it.index > yearStart && it.value.monthIndex == newYearMonthIndex }?.index
             ?: (yearStart + 12).coerceAtMost(labeled.size)
         if (yearEnd <= yearStart) return cacheMonthResolution(cacheKey, fallbackMonthResolution(dateTime, observer))
 
@@ -357,7 +366,8 @@ class YantraCalendarEngine(
         val sectors = CalendarCatalog.lunarMonths.map { month ->
             month.copy(arcDegrees = month.durationDays / totalDays * 360.0)
         }
-        val lunisolarYearStartYear = if (monthIndex >= 9) dateTime.year - 1 else dateTime.year
+        val newYearMonthIndex = calendarLocaleRule.newYearMonthIndex.coerceIn(0, 11)
+        val lunisolarYearStartYear = if (monthIndex < newYearMonthIndex) dateTime.year - 1 else dateTime.year
         return MonthResolution(sectors, monthIndex, lunisolarYearStartYear)
     }
 

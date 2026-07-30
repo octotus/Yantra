@@ -66,6 +66,8 @@ import dev.yantra.app.R
 import dev.yantra.app.calendar.CalendarCatalog
 import dev.yantra.app.calendar.LagnaSector
 import dev.yantra.app.calendar.MonthSector
+import dev.yantra.app.calendar.MonthNameSet
+import dev.yantra.app.calendar.MonthReckoning
 import dev.yantra.app.calendar.YantraCalendarEngine
 import dev.yantra.app.calendar.YantraState
 import dev.yantra.app.engine.AstronomyEngine
@@ -95,19 +97,27 @@ fun YantraApp() {
         pushyaFlower = ImageBitmap.imageResource(id = R.drawable.sigil_pushya_flower),
         purvaPhalguniPavilion = ImageBitmap.imageResource(id = R.drawable.sigil_purva_phalguni_pavilion),
     )
-    val engine = remember(context) {
+    var monthNameSetId by remember(context) { mutableStateOf(loadMonthNameSetId(context)) }
+    var calendarLocaleRuleId by remember(context) { mutableStateOf(loadCalendarLocaleRuleId(context)) }
+    var monthReckoningId by remember(context) { mutableStateOf(loadMonthReckoningId(context)) }
+    val monthNameSet = remember(monthNameSetId) { selectedMonthNameSet(monthNameSetId) }
+    val calendarLocaleRule = remember(calendarLocaleRuleId) { selectedCalendarLocaleRule(calendarLocaleRuleId) }
+    val monthReckoning = remember(monthReckoningId) { selectedMonthReckoning(monthReckoningId) }
+    val engine = remember(context, calendarLocaleRuleId, monthReckoningId) {
         val ephemerisDirectory = EphemerisAssets(context).install()
         YantraCalendarEngine(
             AstronomyEngine(
                 longitudeProvider = SwissEphemeris(ephemerisDirectory.absolutePath)
-            )
+            ),
+            calendarLocaleRule = calendarLocaleRule,
+            monthReckoning = monthReckoning,
         )
     }
     val observer = remember { Observer(latitude = 45.5019, longitude = -73.5674) }
     var now by remember { mutableStateOf(ZonedDateTime.now()) }
     var datePreviewActive by remember { mutableStateOf(false) }
-    val state = remember(now) { engine.compute(now, observer) }
-    val previousState = remember(now) { engine.compute(now.minusDays(1), observer) }
+    val state = remember(now, engine) { engine.compute(now, observer) }
+    val previousState = remember(now, engine) { engine.compute(now.minusDays(1), observer) }
     val festival = remember(state, previousState) { FestivalCatalog.match(state, previousState) }
     var specialDays by remember(context) { mutableStateOf(loadSpecialDays(context)) }
     val specialDay = remember(state, specialDays) { specialDays.firstOrNull { it.matches(state) } }
@@ -183,6 +193,7 @@ fun YantraApp() {
                     YantraInstrument(
                         state = state,
                         sigilImages = sigilImages,
+                        monthNameSet = monthNameSet,
                         lunarEmphasis = lunarEmphasis,
                         festival = festival,
                         observanceLabel = observanceLabel,
@@ -222,6 +233,9 @@ fun YantraApp() {
                             logoPath = logoPath,
                             events = userEvents,
                             specialDays = specialDays,
+                            monthNameSetId = monthNameSetId,
+                            calendarLocaleRuleId = calendarLocaleRuleId,
+                            monthReckoningId = monthReckoningId,
                             onDismiss = { settingsOpen = false },
                             onLogoSelected = { uri ->
                                 val path = saveUserLogo(context, uri)
@@ -240,12 +254,25 @@ fun YantraApp() {
                                 saveSpecialDays(context, next)
                                 specialDays = next
                             },
+                            onMonthNameSetChanged = { id ->
+                                saveMonthNameSetId(context, id)
+                                monthNameSetId = id
+                            },
+                            onCalendarLocaleRuleChanged = { id ->
+                                saveCalendarLocaleRuleId(context, id)
+                                calendarLocaleRuleId = id
+                            },
+                            onMonthReckoningChanged = { id ->
+                                saveMonthReckoningId(context, id)
+                                monthReckoningId = id
+                            },
                         )
                     }
                     if (specialDayEditorOpen) {
                         SpecialDayEditor(
                             state = state,
                             savedDays = specialDays.filter { it.matches(state) },
+                            monthNameSet = monthNameSet,
                             onDismiss = { specialDayEditorOpen = false },
                             onSave = { name ->
                                 val next = (specialDays + state.toSpecialDay(name))
@@ -273,6 +300,7 @@ fun YantraApp() {
 private fun SpecialDayEditor(
     state: YantraState,
     savedDays: List<SpecialDay>,
+    monthNameSet: MonthNameSet,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onDelete: (SpecialDay) -> Unit,
@@ -286,7 +314,7 @@ private fun SpecialDayEditor(
         title = { Text("Special day") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("${state.lunarMonth} ${state.paksha} $tithiNumber")
+                Text("${localizedMonthName(state.month.index, monthNameSet)} ${state.paksha} $tithiNumber")
                 if (selectedSavedDay != null) {
                     Text("Saved: ${selectedSavedDay.name}")
                     if (savedDays.size > 1) {
@@ -466,11 +494,17 @@ private fun YantraSettingsScreen(
     logoPath: String?,
     events: List<UserEvent>,
     specialDays: List<SpecialDay>,
+    monthNameSetId: String,
+    calendarLocaleRuleId: String,
+    monthReckoningId: String,
     onDismiss: () -> Unit,
     onLogoSelected: (Uri) -> Unit,
     onLogoCleared: () -> Unit,
     onEventsChanged: (List<UserEvent>) -> Unit,
     onSpecialDaysChanged: (List<SpecialDay>) -> Unit,
+    onMonthNameSetChanged: (String) -> Unit,
+    onCalendarLocaleRuleChanged: (String) -> Unit,
+    onMonthReckoningChanged: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val logoBitmap = remember(logoPath) { logoPath?.let(::loadLogoBitmap) }
@@ -491,6 +525,7 @@ private fun YantraSettingsScreen(
     val copper = Color(0xFF8E5424)
     val deepCopper = Color(0xFF211007)
     val ink = Color(0xFF050302)
+    val displayMonthNameSet = selectedMonthNameSet(monthNameSetId)
     val textButtonColors = ButtonDefaults.textButtonColors(contentColor = brightGold)
     val buttonColors = ButtonDefaults.buttonColors(
         containerColor = copper,
@@ -531,14 +566,25 @@ private fun YantraSettingsScreen(
                 TextButton(onClick = onDismiss, colors = textButtonColors) { Text("Close") }
             }
 
-            Text("About", color = gold, style = MaterialTheme.typography.titleMedium)
-            Text("Yantra is free software licensed under AGPL-3.0.", color = ivory.copy(alpha = 0.86f))
-            Button(
-                onClick = { openRepository(context) },
-                colors = buttonColors,
-            ) {
-                Text("Open Source Repository")
-            }
+            Text("Calendar", color = gold, style = MaterialTheme.typography.titleMedium)
+            CycleIdCriterion(
+                label = "Month Names",
+                selectedId = monthNameSetId,
+                options = CalendarCatalog.monthNameSets.map { it.id to it.displayName },
+                onValue = onMonthNameSetChanged,
+            )
+            CycleIdCriterion(
+                label = "New Year",
+                selectedId = calendarLocaleRuleId,
+                options = CalendarCatalog.calendarLocaleRules.map { it.id to it.displayName },
+                onValue = onCalendarLocaleRuleChanged,
+            )
+            CycleIdCriterion(
+                label = "Month System",
+                selectedId = monthReckoningId,
+                options = MonthReckoning.values().map { it.id to it.displayName },
+                onValue = onMonthReckoningChanged,
+            )
 
             Button(
                 onClick = { savedDaysOpen = !savedDaysOpen },
@@ -553,6 +599,7 @@ private fun YantraSettingsScreen(
                     textColor = ivory,
                     accentColor = brightGold,
                     textButtonColors = textButtonColors,
+                    monthNameSet = displayMonthNameSet,
                     onEventsChanged = onEventsChanged,
                     onSpecialDaysChanged = onSpecialDaysChanged,
                     onMessage = { message = it },
@@ -605,7 +652,13 @@ private fun YantraSettingsScreen(
                 colors = fieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
-            CycleCriterion("Maasa", draft.month, listOf(null) + CalendarCatalog.lunarMonths.map { it.name }) {
+            CycleOptionalIdCriterion(
+                label = "Maasa",
+                selectedId = draft.month,
+                options = CalendarCatalog.lunarMonths.map { month ->
+                    month.name to localizedMonthName(month.index, displayMonthNameSet)
+                },
+            ) {
                 draft = draft.copy(month = it)
             }
             CycleCriterion("Paksha", draft.paksha, listOf(null, "Shukla", "Krishna")) {
@@ -694,6 +747,15 @@ private fun YantraSettingsScreen(
                 Text("Import Events")
             }
             message?.let { Text(it, color = ivory) }
+
+            Text("About", color = gold, style = MaterialTheme.typography.titleMedium)
+            Text("Yantra is free software licensed under AGPL-3.0.", color = ivory.copy(alpha = 0.86f))
+            Button(
+                onClick = { openRepository(context) },
+                colors = buttonColors,
+            ) {
+                Text("Open Source Repository")
+            }
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -706,6 +768,7 @@ private fun SavedDaysList(
     textColor: Color,
     accentColor: Color,
     textButtonColors: androidx.compose.material3.ButtonColors,
+    monthNameSet: MonthNameSet,
     onEventsChanged: (List<UserEvent>) -> Unit,
     onSpecialDaysChanged: (List<SpecialDay>) -> Unit,
     onMessage: (String) -> Unit,
@@ -723,7 +786,7 @@ private fun SavedDaysList(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    "${day.name} - ${day.month} ${day.paksha} ${day.tithiNumber}",
+                    "${day.name} - ${localizedMonthName(day.month, monthNameSet)} ${day.paksha} ${day.tithiNumber}",
                     color = textColor,
                     modifier = Modifier.weight(1f),
                 )
@@ -745,7 +808,7 @@ private fun SavedDaysList(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    "${event.name} - ${event.criteriaLabel()}",
+                    "${event.name} - ${event.criteriaLabel(monthNameSet)}",
                     color = textColor,
                     modifier = Modifier.weight(1f),
                 )
@@ -760,6 +823,50 @@ private fun SavedDaysList(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CycleIdCriterion(
+    label: String,
+    selectedId: String,
+    options: List<Pair<String, String>>,
+    onValue: (String) -> Unit,
+) {
+    if (options.isEmpty()) return
+    val current = options.indexOfFirst { it.first == selectedId }.takeIf { it >= 0 } ?: 0
+    val textButtonColors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFE2A3))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, color = Color(0xFFFFE8B0), modifier = Modifier.width(116.dp))
+        TextButton(onClick = { onValue(options[(current - 1).floorMod(options.size)].first) }, colors = textButtonColors) { Text("-") }
+        Text(options[current].second, color = Color(0xFFFFE8B0), modifier = Modifier.weight(1f))
+        TextButton(onClick = { onValue(options[(current + 1).floorMod(options.size)].first) }, colors = textButtonColors) { Text("+") }
+    }
+}
+
+@Composable
+private fun CycleOptionalIdCriterion(
+    label: String,
+    selectedId: String?,
+    options: List<Pair<String, String>>,
+    onValue: (String?) -> Unit,
+) {
+    val allOptions = listOf(null to "Any") + options.map { (id, displayName) -> id as String? to displayName }
+    val current = allOptions.indexOfFirst { it.first == selectedId }.takeIf { it >= 0 } ?: 0
+    val textButtonColors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFE2A3))
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, color = Color(0xFFFFE8B0), modifier = Modifier.width(92.dp))
+        TextButton(onClick = { onValue(allOptions[(current - 1).floorMod(allOptions.size)].first) }, colors = textButtonColors) { Text("-") }
+        Text(allOptions[current].second, color = Color(0xFFFFE8B0), modifier = Modifier.weight(1f))
+        TextButton(onClick = { onValue(allOptions[(current + 1).floorMod(allOptions.size)].first) }, colors = textButtonColors) { Text("+") }
     }
 }
 
@@ -804,8 +911,8 @@ private data class UserEvent(
 
     fun identityKey(): String = listOf(name, month, paksha, tithiIndex?.toString(), nakshatra, rashi).joinToString("|")
 
-    fun criteriaLabel(): String = listOfNotNull(
-        month?.let { "Maasa $it" },
+    fun criteriaLabel(monthNameSet: MonthNameSet): String = listOfNotNull(
+        month?.let { "Maasa ${localizedMonthName(it, monthNameSet)}" },
         paksha,
         tithiIndex?.let { CalendarCatalog.tithis[it].name },
         nakshatra?.let { "Nakshatra $it" },
@@ -842,6 +949,54 @@ private const val USER_SETTINGS_PREFS = "yantra_user_settings"
 private const val USER_EVENTS_KEY = "events_json"
 private const val USER_LOGO_KEY = "logo_path"
 private const val USER_LOGO_FILE = "user_logo"
+private const val MONTH_NAME_SET_KEY = "month_name_set"
+private const val CALENDAR_LOCALE_RULE_KEY = "calendar_locale_rule"
+private const val MONTH_RECKONING_KEY = "month_reckoning"
+
+private fun selectedMonthNameSet(id: String): MonthNameSet =
+    CalendarCatalog.monthNameSets.firstOrNull { it.id == id } ?: CalendarCatalog.monthNameSets.first()
+
+private fun selectedCalendarLocaleRule(id: String) =
+    CalendarCatalog.calendarLocaleRules.firstOrNull { it.id == id } ?: CalendarCatalog.calendarLocaleRules.first()
+
+private fun selectedMonthReckoning(id: String): MonthReckoning =
+    MonthReckoning.values().firstOrNull { it.id == id } ?: MonthReckoning.Amanta
+
+private fun loadMonthNameSetId(context: Context): String =
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(MONTH_NAME_SET_KEY, CalendarCatalog.monthNameSets.first().id)
+        ?: CalendarCatalog.monthNameSets.first().id
+
+private fun saveMonthNameSetId(context: Context, id: String) {
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(MONTH_NAME_SET_KEY, id)
+        .apply()
+}
+
+private fun loadCalendarLocaleRuleId(context: Context): String =
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(CALENDAR_LOCALE_RULE_KEY, CalendarCatalog.calendarLocaleRules.first().id)
+        ?: CalendarCatalog.calendarLocaleRules.first().id
+
+private fun saveCalendarLocaleRuleId(context: Context, id: String) {
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(CALENDAR_LOCALE_RULE_KEY, id)
+        .apply()
+}
+
+private fun loadMonthReckoningId(context: Context): String =
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(MONTH_RECKONING_KEY, MonthReckoning.Amanta.id)
+        ?: MonthReckoning.Amanta.id
+
+private fun saveMonthReckoningId(context: Context, id: String) {
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(MONTH_RECKONING_KEY, id)
+        .apply()
+}
 
 private fun loadUserEvents(context: Context): List<UserEvent> {
     val raw = context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE).getString(USER_EVENTS_KEY, null) ?: return emptyList()
@@ -1100,6 +1255,7 @@ private fun lotusRadiusForLayout(ringWidth: Float): Float = ringWidth * 0.76f
 private fun YantraInstrument(
     state: YantraState,
     sigilImages: SigilImages,
+    monthNameSet: MonthNameSet,
     lunarEmphasis: Boolean,
     festival: FestivalDefinition?,
     observanceLabel: String?,
@@ -1158,7 +1314,7 @@ private fun YantraInstrument(
                     } else if (tap.isInRect(layout.dateHitRect)) {
                         onDateTap()
                     } else {
-                        hitAnnotation(tap, layout.center, ringWidth, nakshatraRingRadius, monthRingRadius, rashiRingRadius, state)?.let(onAnnotation)
+                        hitAnnotation(tap, layout.center, ringWidth, nakshatraRingRadius, monthRingRadius, rashiRingRadius, state, monthNameSet)?.let(onAnnotation)
                     }
                 }
             )
@@ -1208,7 +1364,7 @@ private fun YantraInstrument(
             )
             drawRing(27, state.nakshatra.index, nakshatraRingRadius, ringWidth, bronze, activeGold.copy(alpha = 0.22f + lunarBoost * 0.08f))
             drawMonthRing(
-                sectors = state.monthSectors,
+                sectors = localizedMonthSectors(state.monthSectors, monthNameSet),
                 activeIndex = state.month.index,
                 radius = monthRingRadius,
                 width = ringWidth,
@@ -1338,6 +1494,25 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPocketWatchBody
     drawCircle(Color(0xFFFFF0BD).copy(alpha = 0.62f), outerRadius, center, style = Stroke(width = 1.dp.toPx()))
 }
 
+private fun localizedMonthSectors(sectors: List<MonthSector>, monthNameSet: MonthNameSet): List<MonthSector> =
+    sectors.map { sector ->
+        val index = sector.index.coerceIn(0, CalendarCatalog.lunarMonths.lastIndex)
+        sector.copy(
+            name = monthNameSet.monthNames.getOrElse(index) { sector.name },
+            abbreviation = monthNameSet.abbreviations.getOrElse(index) { sector.abbreviation },
+        )
+    }
+
+private fun localizedMonthName(index: Int, monthNameSet: MonthNameSet): String =
+    monthNameSet.monthNames.getOrElse(index.coerceIn(0, CalendarCatalog.lunarMonths.lastIndex)) {
+        CalendarCatalog.lunarMonths[index.coerceIn(0, CalendarCatalog.lunarMonths.lastIndex)].name
+    }
+
+private fun localizedMonthName(canonicalName: String, monthNameSet: MonthNameSet): String {
+    val index = CalendarCatalog.lunarMonths.indexOfFirst { it.name == canonicalName }
+    return if (index >= 0) localizedMonthName(index, monthNameSet) else canonicalName
+}
+
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawUserLogo(
     image: ImageBitmap,
     center: Offset,
@@ -1402,6 +1577,7 @@ private fun hitAnnotation(
     monthRingRadius: Float,
     rashiRingRadius: Float,
     state: YantraState,
+    monthNameSet: MonthNameSet,
 ): YantraAnnotation? {
     val distance = hypot(tap.x - center.x, tap.y - center.y)
     return when {
@@ -1415,10 +1591,11 @@ private fun hitAnnotation(
         }
         distance.isInRing(monthRingRadius, ringWidth) -> {
             val fraction = angleToFraction(tap, center)
-            val sector = state.monthSectors.firstOrNull { month ->
-                val start = state.monthSectors.takeWhile { it.index != month.index }.sumOf { it.arcDegrees } / 360.0
+            val sectors = localizedMonthSectors(state.monthSectors, monthNameSet)
+            val sector = sectors.firstOrNull { month ->
+                val start = sectors.takeWhile { it.index != month.index }.sumOf { it.arcDegrees } / 360.0
                 fraction >= start && fraction < start + month.arcDegrees / 360.0
-            } ?: state.monthSectors.lastOrNull()
+            } ?: sectors.lastOrNull()
             sector?.let { YantraAnnotation(AnnotationKind.Masa, it.index, it.name) }
         }
         distance.isInRing(nakshatraRingRadius, ringWidth) -> {

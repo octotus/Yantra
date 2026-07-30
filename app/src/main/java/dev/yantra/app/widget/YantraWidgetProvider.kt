@@ -16,10 +16,12 @@ import dev.yantra.app.engine.Observer
 import dev.yantra.app.engine.SwissEphemeris
 import java.time.ZonedDateTime
 
-class YantraWidgetProvider : AppWidgetProvider() {
+open class YantraWidgetProvider : AppWidgetProvider() {
+    protected open val lockScreenWidget: Boolean = false
+
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         appWidgetIds.forEach { appWidgetId ->
-            updateWidget(context, appWidgetManager, appWidgetId)
+            updateWidget(context, appWidgetManager, appWidgetId, lockScreenWidget)
         }
     }
 
@@ -37,9 +39,14 @@ class YantraWidgetProvider : AppWidgetProvider() {
 
         fun updateAllWidgets(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
-            val component = ComponentName(context, YantraWidgetProvider::class.java)
-            manager.getAppWidgetIds(component).forEach { appWidgetId ->
-                updateWidget(context, manager, appWidgetId)
+            listOf(
+                YantraWidgetProvider::class.java to false,
+                YantraLockScreenWidgetProvider::class.java to true,
+            ).forEach { (provider, lockScreenWidget) ->
+                val component = ComponentName(context, provider)
+                manager.getAppWidgetIds(component).forEach { appWidgetId ->
+                    updateWidget(context, manager, appWidgetId, lockScreenWidget)
+                }
             }
         }
 
@@ -47,8 +54,10 @@ class YantraWidgetProvider : AppWidgetProvider() {
             context: Context,
             manager: AppWidgetManager,
             appWidgetId: Int,
+            lockScreenWidget: Boolean,
         ) {
-            val views = RemoteViews(context.packageName, R.layout.widget_yantra)
+            val layout = if (lockScreenWidget) R.layout.widget_yantra_lockscreen else R.layout.widget_yantra
+            val views = RemoteViews(context.packageName, layout)
             val launchIntent = Intent(context, MainActivity::class.java)
             val pendingIntent = PendingIntent.getActivity(
                 context,
@@ -69,9 +78,17 @@ class YantraWidgetProvider : AppWidgetProvider() {
                 YantraCalendarEngine().compute(now, defaultObserver)
             }
 
-            val bitmap = YantraWidgetRenderer.render(state, now)
+            val bitmap = if (lockScreenWidget) {
+                YantraWidgetRenderer.renderLockScreen(state, now)
+            } else {
+                YantraWidgetRenderer.render(state, now)
+            }
             views.setImageViewBitmap(R.id.yantra_widget_image, bitmap)
             manager.updateAppWidget(appWidgetId, views)
         }
     }
+}
+
+class YantraLockScreenWidgetProvider : YantraWidgetProvider() {
+    override val lockScreenWidget: Boolean = true
 }
