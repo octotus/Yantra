@@ -3,20 +3,27 @@ package dev.yantra.app.engine
 class SwissEphemeris(
     private val ephemerisPath: String,
 ) : LongitudeProvider {
-    override fun longitudes(julianDayUt: Double): EclipticLongitudes? {
+    override fun longitudes(julianDayUt: Double, observer: Observer): EclipticLongitudes? {
         if (!NativeBridge.available) return null
-        val values = nativeLongitudes(julianDayUt, ephemerisPath)
+        val values = nativeLongitudes(julianDayUt, observer.latitude, observer.longitude, ephemerisPath)
         val sun = values.getOrNull(0) ?: return null
         val moon = values.getOrNull(1) ?: return null
+        val ascendant = values.getOrNull(4)
         if (sun < 0.0 || moon < 0.0) return null
         return EclipticLongitudes(
             solarLongitude = normalizeDegrees(sun),
             lunarLongitude = normalizeDegrees(moon),
+            ascendantLongitude = ascendant?.takeIf { it >= 0.0 }?.let { normalizeDegrees(it) },
             sidereal = true,
         )
     }
 
-    private external fun nativeLongitudes(julianDayUt: Double, ephemerisPath: String): DoubleArray
+    private external fun nativeLongitudes(
+        julianDayUt: Double,
+        latitude: Double,
+        longitude: Double,
+        ephemerisPath: String,
+    ): DoubleArray
 
     private object NativeBridge {
         val available: Boolean = runCatching {

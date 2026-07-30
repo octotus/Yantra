@@ -1,0 +1,33 @@
+Yantra Licensing Notice
+=======================
+
+Yantra is free software licensed under the GNU Affero General Public License
+version 3.0. You may copy, modify, and redistribute Yantra under the terms of
+that license.
+
+Yantra is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See LICENSE for the full license text.
+
+Source code: https://github.com/octotus/Yantra
+
+Third-party component: Swiss Ephemeris
+--------------------------------------
+
+Yantra includes and links against Swiss Ephemeris C sources and ephemeris data
+under third_party/swisseph.
+
+Swiss Ephemeris is copyright (C) 1997-2021 Astrodienst AG, Switzerland.
+Authors of Swiss Ephemeris: Dieter Koch and Alois Treindl.
+
+Swiss Ephemeris is made available by Astrodienst under a dual licensing system:
+the GNU Affero General Public License or the Swiss Ephemeris Professional
+License. Yantra uses Swiss Ephemeris under the AGPL option, so the complete
+Yantra project is distributed under AGPL-compatible terms.
+
+The names Astrodienst, Dieter Koch, and Alois Treindl are used only for
+copyright and license attribution. Their names do not imply endorsement of
+Yantra.
+
+See third_party/swisseph/LICENSE and https://www.astro.com/swisseph/ for the
+upstream Swiss Ephemeris license notice.

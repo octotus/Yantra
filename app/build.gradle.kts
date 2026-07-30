@@ -16,6 +16,22 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(providers.gradleProperty("YANTRA_KEYSTORE").get())
+            storePassword = providers.gradleProperty("YANTRA_KEYSTORE_PASSWORD").get()
+            keyAlias = providers.gradleProperty("YANTRA_KEY_ALIAS").get()
+            keyPassword = providers.gradleProperty("YANTRA_KEY_PASSWORD").get()
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
+    }
+
     buildFeatures {
         compose = true
     }

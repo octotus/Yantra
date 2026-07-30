@@ -10,12 +10,15 @@ import kotlin.math.floor
 
 class YantraCalendarEngine(
     private val astronomyEngine: AstronomyEngine = AstronomyEngine(),
+    private val calendarLocaleRule: CalendarLocaleRule = CalendarCatalog.calendarLocaleRules.first(),
+    private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
 ) {
     private companion object {
         private const val SAMVATSARA_YEAR_OFFSET = 53
     }
 
     private val monthResolutionCache = linkedMapOf<String, MonthResolution>()
+    private val lagnaResolutionCache = linkedMapOf<String, LagnaResolution>()
 
     fun current(observer: Observer): YantraState = compute(ZonedDateTime.now(), observer)
 
@@ -41,12 +44,24 @@ class YantraCalendarEngine(
         val yogaIndex = floor(normalizeDegrees(siderealSun + siderealMoon) / (360.0 / 27.0)).toInt().coerceIn(0, 26)
         val samvatsaraIndex = resolveSamvatsaraIndex(monthResolution)
         val monthSectors = monthResolution.sectors
-        val activeMonth = monthSectors[monthResolution.activeMonthIndex]
+        val paksha = if (tithiIndex < 15) "Shukla" else "Krishna"
+        val activeMonthIndex = when {
+            monthReckoning == MonthReckoning.Purnimanta && paksha == "Krishna" ->
+                Math.floorMod(monthResolution.activeMonthIndex + 1, 12)
+            else -> monthResolution.activeMonthIndex
+        }
+        val activeMonth = monthSectors[activeMonthIndex]
+        val siderealAscendant = celestial.ascendantLongitude?.let { ascendant ->
+            if (celestial.longitudesAreSidereal) ascendant else normalizeDegrees(ascendant - ayanamsa)
+        }
+        val lagnaResolution = resolveDailyLagnaSectors(dateTime, observer)
+        val lagnaRashiIndex = siderealAscendant?.let { floor(it / 30.0).toInt().coerceIn(0, 11) }
 
         return YantraState(
             julianDay = celestial.julianDay,
             solarLongitude = siderealSun,
             lunarLongitude = siderealMoon,
+            ascendantLongitude = siderealAscendant,
             solarAltitude = celestial.solarAltitude,
             lunarAltitude = celestial.lunarAltitude,
             moonIllumination = celestial.moonIllumination,
@@ -57,19 +72,88 @@ class YantraCalendarEngine(
             lunarRashi = CalendarCatalog.rashis[lunarRashiIndex],
             month = activeMonth,
             monthSectors = monthSectors,
+            lagnaSectors = lagnaResolution.sectors,
+            lagnaRashi = lagnaRashiIndex?.let { CalendarCatalog.rashis[it] },
+            lagnaDayFraction = dayFraction(dateTime),
             samvatsara = CalendarCatalog.samvatsaras[samvatsaraIndex],
-            paksha = if (tithiIndex < 15) "Shukla" else "Krishna",
+            paksha = paksha,
             lunarMonth = activeMonth.name,
             yoga = CalendarCatalog.yogas[yogaIndex],
         )
     }
+
+    private fun resolveDailyLagnaSectors(dateTime: ZonedDateTime, observer: Observer): LagnaResolution {
+        val cacheKey = listOf(
+            dateTime.toLocalDate().toString(),
+            "%.4f".format(observer.latitude),
+            "%.4f".format(observer.longitude),
+        ).joinToString("|")
+        lagnaResolutionCache[cacheKey]?.let { return it }
+
+        val midnight = dateTime.toLocalDate().atStartOfDay(dateTime.zone)
+        val samples = mutableListOf<LagnaSample>()
+        for (minute in 0..1440 step 5) {
+            val sampleTime = midnight.plusMinutes(minute.toLong())
+            val sample = astronomyEngine.compute(sampleTime, observer)
+            val sampleAyanamsa = lahiriAyanamsaApprox(sample.julianDay)
+            val ascendant = sample.ascendantLongitude?.let {
+                if (sample.longitudesAreSidereal) it else normalizeDegrees(it - sampleAyanamsa)
+            }
+            if (ascendant != null) {
+                samples += LagnaSample(minute / 1440.0, floor(ascendant / 30.0).toInt().coerceIn(0, 11))
+            }
+        }
+        if (samples.size < 2) return cacheLagnaResolution(cacheKey, equalLagnaResolution())
+
+        val sectors = mutableListOf<LagnaSector>()
+        var currentIndex = samples.first().rashiIndex
+        var currentStart = 0.0
+        for (sampleIndex in 1 until samples.size) {
+            val sample = samples[sampleIndex]
+            if (sample.rashiIndex != currentIndex) {
+                val previous = samples[sampleIndex - 1]
+                val boundary = (previous.fraction + sample.fraction) / 2.0
+                sectors += lagnaSector(currentIndex, currentStart, boundary)
+                currentIndex = sample.rashiIndex
+                currentStart = boundary
+            }
+        }
+        sectors += lagnaSector(currentIndex, currentStart, 1.0)
+
+        val normalized = sectors.filter { it.durationFraction > 0.0001 }
+        return cacheLagnaResolution(cacheKey, LagnaResolution(normalized.ifEmpty { equalLagnaResolution().sectors }))
+    }
+
+    private fun cacheLagnaResolution(key: String, resolution: LagnaResolution): LagnaResolution {
+        if (lagnaResolutionCache.size > 8) lagnaResolutionCache.clear()
+        lagnaResolutionCache[key] = resolution
+        return resolution
+    }
+
+    private fun lagnaSector(index: Int, start: Double, end: Double): LagnaSector =
+        LagnaSector(
+            index = index,
+            name = CalendarCatalog.rashis[index].name,
+            startFraction = start.coerceIn(0.0, 1.0),
+            durationFraction = (end - start).coerceAtLeast(0.0),
+        )
+
+    private fun equalLagnaResolution(): LagnaResolution =
+        LagnaResolution(
+            CalendarCatalog.rashis.mapIndexed { index, rashi ->
+                LagnaSector(index, rashi.name, index / 12.0, 1.0 / 12.0)
+            }
+        )
+
+    private fun dayFraction(dateTime: ZonedDateTime): Double =
+        (dateTime.toLocalTime().toSecondOfDay() + dateTime.nano / 1_000_000_000.0) / 86_400.0
 
     private fun resolveLunarYearMonths(
         dateTime: ZonedDateTime,
         observer: Observer,
         julianDay: Double,
     ): MonthResolution {
-        val cacheKey = dateTime.toLocalDate().toString()
+        val cacheKey = listOf(dateTime.toLocalDate().toString(), calendarLocaleRule.id, monthReckoning.id).joinToString("|")
         monthResolutionCache[cacheKey]?.let { return it }
 
         val newMoons = findNewMoons(julianDay - 430.0, julianDay + 430.0, dateTime, observer, julianDay)
@@ -87,10 +171,11 @@ class YantraCalendarEngine(
         }
         val activeIndex = labeled.indexOfLast { julianDay >= it.lunation.start && julianDay < it.lunation.end }
             .takeIf { it >= 0 } ?: return cacheMonthResolution(cacheKey, fallbackMonthResolution(dateTime, observer))
-        val yearStart = labeled.withIndex().filter { it.index <= activeIndex && it.value.monthIndex == 0 }.maxByOrNull { it.index }?.index
+        val newYearMonthIndex = calendarLocaleRule.newYearMonthIndex.coerceIn(0, 11)
+        val yearStart = labeled.withIndex().filter { it.index <= activeIndex && it.value.monthIndex == newYearMonthIndex }.maxByOrNull { it.index }?.index
             ?: labeled.withIndex().filter { it.index <= activeIndex }.maxByOrNull { it.index }?.index
             ?: return cacheMonthResolution(cacheKey, fallbackMonthResolution(dateTime, observer))
-        val yearEnd = labeled.withIndex().firstOrNull { it.index > yearStart && it.value.monthIndex == 0 }?.index
+        val yearEnd = labeled.withIndex().firstOrNull { it.index > yearStart && it.value.monthIndex == newYearMonthIndex }?.index
             ?: (yearStart + 12).coerceAtMost(labeled.size)
         if (yearEnd <= yearStart) return cacheMonthResolution(cacheKey, fallbackMonthResolution(dateTime, observer))
 
@@ -281,7 +366,8 @@ class YantraCalendarEngine(
         val sectors = CalendarCatalog.lunarMonths.map { month ->
             month.copy(arcDegrees = month.durationDays / totalDays * 360.0)
         }
-        val lunisolarYearStartYear = if (monthIndex >= 9) dateTime.year - 1 else dateTime.year
+        val newYearMonthIndex = calendarLocaleRule.newYearMonthIndex.coerceIn(0, 11)
+        val lunisolarYearStartYear = if (monthIndex < newYearMonthIndex) dateTime.year - 1 else dateTime.year
         return MonthResolution(sectors, monthIndex, lunisolarYearStartYear)
     }
 
@@ -294,6 +380,15 @@ class YantraCalendarEngine(
         val sectors: List<MonthSector>,
         val activeMonthIndex: Int,
         val lunisolarYearStartYear: Int,
+    )
+
+    private data class LagnaResolution(
+        val sectors: List<LagnaSector>,
+    )
+
+    private data class LagnaSample(
+        val fraction: Double,
+        val rashiIndex: Int,
     )
 
     private data class Lunation(
