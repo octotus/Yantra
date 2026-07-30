@@ -1,7 +1,3 @@
 <resources>
     <string name="app_name">Yantra</string>
-    <string name="yantra_widget_name">Yantra</string>
-    <string name="yantra_widget_description">Current Yantra instrument</string>
-    <string name="yantra_lockscreen_widget_name">Yantra Lock Screen</string>
-    <string name="yantra_lockscreen_widget_description">Current Yantra lock screen instrument</string>
 </resources>
