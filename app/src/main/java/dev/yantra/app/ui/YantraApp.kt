@@ -495,12 +495,12 @@ private data class CryptexLayout(
     val commitRect: Rect,
 )
 
-private enum class FestivalRank {
+internal enum class FestivalRank {
     Major,
     Minor,
 }
 
-private data class FestivalDefinition(
+internal data class FestivalDefinition(
     val name: String,
     val rank: FestivalRank,
     val month: String? = null,
@@ -512,7 +512,7 @@ private data class FestivalDefinition(
     val astronomicalDefinition: String,
 )
 
-private data class SpecialDay(
+internal data class SpecialDay(
     val name: String,
     val month: String,
     val paksha: String,
@@ -535,7 +535,7 @@ private fun YantraState.toSpecialDay(name: String): SpecialDay =
         tithiNumber = (tithi.index % 15) + 1,
     )
 
-private fun loadSpecialDays(context: Context): List<SpecialDay> =
+internal fun loadSpecialDays(context: Context): List<SpecialDay> =
     context.getSharedPreferences(SPECIAL_DAYS_PREFS, Context.MODE_PRIVATE)
         .getStringSet(SPECIAL_DAYS_KEY, emptySet())
         .orEmpty()
@@ -981,7 +981,7 @@ private fun CycleCriterion(
     }
 }
 
-private data class UserEvent(
+internal data class UserEvent(
     val name: String = "",
     val month: String? = null,
     val paksha: String? = null,
@@ -1088,7 +1088,7 @@ private fun saveMonthReckoningId(context: Context, id: String) {
         .apply()
 }
 
-private fun loadUserEvents(context: Context): List<UserEvent> {
+internal fun loadUserEvents(context: Context): List<UserEvent> {
     val raw = context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE).getString(USER_EVENTS_KEY, null) ?: return emptyList()
     return runCatching {
         val array = JSONArray(raw)
@@ -1220,7 +1220,7 @@ private fun openRepository(context: Context) {
 
 private fun Int.floorMod(modulus: Int): Int = Math.floorMod(this, modulus)
 
-private object FestivalCatalog {
+internal object FestivalCatalog {
     private val definitions = listOf(
         FestivalDefinition("Makara Sankranti", FestivalRank.Major, solarRashi = "Makara", previousSolarRashi = "Dhanu", astronomicalDefinition = "Solar ingress into sidereal Makara."),
         FestivalDefinition("Chaitra New Year", FestivalRank.Major, month = "Chaitra", paksha = "Shukla", tithiNumber = 1, astronomicalDefinition = "Chaitra Shukla Pratipada."),
