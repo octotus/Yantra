@@ -1319,6 +1319,7 @@ private enum class AnnotationKind {
     Rashi,
     Masa,
     Nakshatra,
+    Tithi,
 }
 
 private data class YantraAnnotation(
@@ -1427,6 +1428,7 @@ private fun YantraInstrument(
                     }
                     val distance = hypot(tap.x - layout.center.x, tap.y - layout.center.y)
                     val ringWidth = layout.radius * 0.135f
+                    val tithiRingRadius = layout.radius - ringWidth * 0.35f
                     val nakshatraRingRadius = layout.radius - ringWidth * 1.5f
                     val monthRingRadius = layout.radius - ringWidth * 2.65f
                     val rashiRingRadius = layout.radius - ringWidth * 3.72f
@@ -1442,7 +1444,7 @@ private fun YantraInstrument(
                     } else if (tap.isInRect(layout.dateHitRect)) {
                         onDateTap()
                     } else {
-                        hitAnnotation(tap, layout.center, ringWidth, nakshatraRingRadius, monthRingRadius, rashiRingRadius, state, monthNameSet)?.let(onAnnotation)
+                        hitAnnotation(tap, layout.center, ringWidth, tithiRingRadius, nakshatraRingRadius, monthRingRadius, rashiRingRadius, state, monthNameSet)?.let(onAnnotation)
                     }
                 }
             )
@@ -1724,6 +1726,7 @@ private fun hitAnnotation(
     tap: Offset,
     center: Offset,
     ringWidth: Float,
+    tithiRingRadius: Float,
     nakshatraRingRadius: Float,
     monthRingRadius: Float,
     rashiRingRadius: Float,
@@ -1732,6 +1735,13 @@ private fun hitAnnotation(
 ): YantraAnnotation? {
     val distance = hypot(tap.x - center.x, tap.y - center.y)
     return when {
+        distance.isInRing(tithiRingRadius, ringWidth * 1.15f) -> {
+            val angle = (Math.toDegrees(kotlin.math.atan2((tap.y - center.y).toDouble(), (tap.x - center.x).toDouble())) + 360.0) % 360.0
+            val index = (0 until 30).firstOrNull { candidate ->
+                normalizePhase(angle - tithiCellStartAngle(candidate)) < 12.0
+            } ?: state.tithi.index
+            YantraAnnotation(AnnotationKind.Tithi, index, CalendarCatalog.tithis[index].name)
+        }
         distance.isInRing(rashiRingRadius, ringWidth) -> {
             val fraction = angleToFraction(tap, center)
             val index = state.lagnaSectors.firstOrNull { sector ->
@@ -1817,6 +1827,17 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
     when (annotation.kind) {
         AnnotationKind.Rashi -> drawRashiSigil(annotation.index, sigilCenter, sigilSize, gold)
         AnnotationKind.Nakshatra -> drawNakshatraSigil(annotation.index, sigilCenter, sigilSize, gold, sigilImages)
+        AnnotationKind.Tithi -> drawIntoCanvas { canvas ->
+            drawEmbossedText(
+                native = canvas.nativeCanvas,
+                text = ((annotation.index % 15) + 1).toString(),
+                x = sigilCenter.x,
+                y = sigilCenter.y + sigilSize * 0.13f,
+                size = sigilSize * 0.42f,
+                color = gold,
+                bold = true,
+            )
+        }
         AnnotationKind.Masa -> drawIntoCanvas { canvas ->
             drawEmbossedText(
                 native = canvas.nativeCanvas,
@@ -1889,6 +1910,7 @@ private fun YantraAnnotation.withDuration(
     }
     val interval = when (kind) {
         AnnotationKind.Nakshatra -> engine.nakshatraInterval(now, observer, index)
+        AnnotationKind.Tithi -> engine.tithiInterval(now, observer, index)
         AnnotationKind.Masa -> null
         AnnotationKind.Rashi -> null
     } ?: return this

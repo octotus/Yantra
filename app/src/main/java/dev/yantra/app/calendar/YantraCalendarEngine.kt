@@ -13,6 +13,26 @@ class YantraCalendarEngine(
     private val calendarLocaleRule: CalendarLocaleRule = CalendarCatalog.calendarLocaleRules.first(),
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
 ) {
+    fun tithiInterval(dateTime: ZonedDateTime, observer: Observer, targetIndex: Int): Pair<ZonedDateTime, ZonedDateTime>? {
+        val segmentWidth = 12.0
+        val elongation = elongationAt(dateTime, observer)
+        val targetStart = targetIndex * segmentWidth
+        val currentIndex = floor(elongation / segmentWidth).toInt().coerceIn(0, 29)
+        val progress = normalizeDegrees(elongation - targetStart)
+        val entryDelta = if (currentIndex == targetIndex) -progress else normalizeDegrees(targetStart - elongation)
+        val exitDelta = if (currentIndex == targetIndex) segmentWidth - progress else normalizeDegrees(targetStart - elongation) + segmentWidth
+        val degreesPerDay = 12.19074864
+        val entryEstimate = estimateElongationCrossing(dateTime, observer, targetStart, entryDelta, degreesPerDay)
+        val exitEstimate = estimateElongationCrossing(dateTime, observer, normalizeDegrees(targetStart + segmentWidth), exitDelta, degreesPerDay)
+        val indexAt: (ZonedDateTime) -> Int = { candidate ->
+            floor(elongationAt(candidate, observer) / segmentWidth).toInt().coerceIn(0, 29)
+        }
+        val halfWindow = Duration.ofHours(8)
+        val entry = refineEstimatedBoundary(entryEstimate, halfWindow, targetIndex, entering = true, indexAt) ?: return null
+        val exit = refineEstimatedBoundary(exitEstimate, halfWindow, targetIndex, entering = false, indexAt) ?: return null
+        return entry to exit
+    }
+
     fun nakshatraInterval(dateTime: ZonedDateTime, observer: Observer, targetIndex: Int): Pair<ZonedDateTime, ZonedDateTime>? {
         val segmentWidth = 360.0 / 27.0
         val longitude = siderealLongitudeAt(dateTime, observer, solar = false)
@@ -74,6 +94,21 @@ class YantraCalendarEngine(
         return estimate
     }
 
+    private fun estimateElongationCrossing(
+        dateTime: ZonedDateTime,
+        observer: Observer,
+        targetElongation: Double,
+        initialDelta: Double,
+        degreesPerDay: Double,
+    ): ZonedDateTime {
+        var estimate = dateTime.plusSeconds((initialDelta / degreesPerDay * 86_400.0).toLong())
+        repeat(4) {
+            val signedError = ((targetElongation - elongationAt(estimate, observer) + 540.0) % 360.0) - 180.0
+            estimate = estimate.plusSeconds((signedError / degreesPerDay * 86_400.0).toLong())
+        }
+        return estimate
+    }
+
     private fun refineEstimatedBoundary(
         estimate: ZonedDateTime,
         halfWindow: Duration,
@@ -108,6 +143,11 @@ class YantraCalendarEngine(
         } else {
             normalizeDegrees(longitude - lahiriAyanamsaApprox(celestial.julianDay))
         }
+    }
+
+    private fun elongationAt(dateTime: ZonedDateTime, observer: Observer): Double {
+        val celestial = astronomyEngine.compute(dateTime, observer)
+        return normalizeDegrees(celestial.lunarLongitude - celestial.solarLongitude)
     }
 
     private companion object {
