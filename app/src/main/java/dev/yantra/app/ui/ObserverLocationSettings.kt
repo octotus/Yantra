@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -106,6 +107,11 @@ internal fun ObserverLocationPanel(
     var country by remember { mutableStateOf("") }
     var timeZone by remember(current.timeZoneId) { mutableStateOf(current.timeZoneId) }
     var message by remember { mutableStateOf<String?>(null) }
+    val copperButtonColors = ButtonDefaults.buttonColors(
+        containerColor = Color(0xFF8E5424),
+        contentColor = Color(0xFFFFE8B0),
+    )
+    val bronzeTextButtonColors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE8CA8B))
 
     fun applyDeviceLocation() {
         val location = lastKnownLocation(context)
@@ -140,8 +146,8 @@ internal fun ObserverLocationPanel(
         Text("${current.label} · ${current.timeZoneId}", color = textColor)
         Text("Location is used only for local astronomical timing. Yantra never tracks movement or runs background location.", color = textColor.copy(alpha = 0.72f))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { privacyOpen = true }) { Text("Use device location") }
-            TextButton(onClick = { manualOpen = !manualOpen }) { Text("Choose a city") }
+            Button(onClick = { privacyOpen = true }, colors = copperButtonColors) { Text("Use device location") }
+            TextButton(onClick = { manualOpen = !manualOpen }, colors = bronzeTextButtonColors) { Text("Choose a city") }
         }
         if (privacyOpen) {
             androidx.compose.material3.AlertDialog(
@@ -152,9 +158,9 @@ internal fun ObserverLocationPanel(
                     TextButton(onClick = {
                         privacyOpen = false
                         permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                    }) { Text("Allow location") }
+                    }, colors = bronzeTextButtonColors) { Text("Allow location") }
                 },
-                dismissButton = { TextButton(onClick = { privacyOpen = false; manualOpen = true }) { Text("Choose a city") } },
+                dismissButton = { TextButton(onClick = { privacyOpen = false; manualOpen = true }, colors = bronzeTextButtonColors) { Text("Choose a city") } },
             )
         }
         if (manualOpen) {
@@ -179,7 +185,7 @@ internal fun ObserverLocationPanel(
                         manualOpen = false
                     }
                 }
-            }) { Text("Use this location") }
+            }, colors = copperButtonColors) { Text("Use this location") }
         }
         message?.let { Text(it, color = accentColor) }
     }

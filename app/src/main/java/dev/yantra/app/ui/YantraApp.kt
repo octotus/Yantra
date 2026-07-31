@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -661,7 +662,18 @@ private fun YantraSettingsScreen(
                     Text("Important-day notifications", color = ivory)
                     Text("Quiet status-bar reminders; no sound or vibration. Amavasya is included.", color = ivory.copy(alpha = 0.68f))
                 }
-                Switch(checked = notificationsEnabled, onCheckedChange = onNotificationsChanged)
+                Switch(
+                    checked = notificationsEnabled,
+                    onCheckedChange = onNotificationsChanged,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = ivory,
+                        checkedTrackColor = copper,
+                        checkedBorderColor = brightGold,
+                        uncheckedThumbColor = gold,
+                        uncheckedTrackColor = deepCopper,
+                        uncheckedBorderColor = gold.copy(alpha = 0.7f),
+                    ),
+                )
             }
             CycleIdCriterion(
                 label = "New Year",
@@ -1740,7 +1752,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
     gold: Color,
 ) {
     val cardWidth = radius * 0.72f
-    val cardHeight = radius * 0.52f
+    val cardHeight = radius * if (annotation.durationLabel == null) 0.52f else 0.68f
     val cardCenter = center
     val rect = Rect(
         cardCenter.x - cardWidth / 2f,
@@ -1761,8 +1773,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
         cornerRadius = CornerRadius(cardHeight * 0.22f, cardHeight * 0.22f),
         style = Stroke(width = 0.8.dp.toPx()),
     )
-    val sigilCenter = Offset(rect.center.x, rect.top + cardHeight * 0.35f)
-    val sigilSize = cardHeight * 0.42f
+    val sigilCenter = Offset(rect.center.x, rect.top + cardHeight * 0.27f)
+    val sigilSize = cardHeight * 0.32f
     when (annotation.kind) {
         AnnotationKind.Rashi -> drawRashiSigil(annotation.index, sigilCenter, sigilSize, gold)
         AnnotationKind.Nakshatra -> drawNakshatraSigil(annotation.index, sigilCenter, sigilSize, gold, sigilImages)
@@ -1783,20 +1795,20 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
             native = canvas.nativeCanvas,
             text = annotation.name.uppercase(),
             x = rect.center.x,
-            y = rect.bottom - cardHeight * 0.18f,
-            size = cardHeight * 0.15f,
+            y = if (annotation.durationLabel == null) rect.bottom - cardHeight * 0.18f else rect.top + cardHeight * 0.58f,
+            size = cardHeight * 0.115f,
             color = Color(0xFFFFE8B0),
             bold = true,
         )
     }
-    annotation.durationLabel?.let { duration ->
+    annotation.durationLabel?.lineSequence()?.take(2)?.forEachIndexed { index, line ->
         drawIntoCanvas { canvas ->
             drawEmbossedText(
                 native = canvas.nativeCanvas,
-                text = duration,
+                text = line,
                 x = rect.center.x,
-                y = rect.bottom - cardHeight * 0.065f,
-                size = cardHeight * 0.105f,
+                y = rect.top + cardHeight * (0.76f + index * 0.14f),
+                size = cardHeight * 0.09f,
                 color = Color(0xFFE8CA8B).copy(alpha = 0.9f),
                 bold = false,
             )
@@ -1823,10 +1835,10 @@ private fun YantraAnnotation.withDuration(
     val timeFormatter = DateTimeFormatter.ofPattern(if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a")
     val sameDay = interval.first.toLocalDate() == interval.second.toLocalDate()
     val label = if (sameDay) {
-        "${interval.first.format(timeFormatter)} – ${interval.second.format(timeFormatter)}"
+        "From ${interval.first.format(timeFormatter)}\nTo ${interval.second.format(timeFormatter)}"
     } else {
-        val dateTime = DateTimeFormatter.ofPattern("MMM d, h:mm a")
-        "${interval.first.format(dateTime)} – ${interval.second.format(dateTime)}"
+        val dateTime = DateTimeFormatter.ofPattern(if (android.text.format.DateFormat.is24HourFormat(context)) "MMM d, HH:mm" else "MMM d, h:mm a")
+        "From ${interval.first.format(dateTime)}\nTo ${interval.second.format(dateTime)}"
     }
     return copy(durationLabel = label)
 }
