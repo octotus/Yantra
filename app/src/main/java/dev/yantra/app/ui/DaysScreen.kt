@@ -85,6 +85,7 @@ internal fun DaysScreen(
     val deepCopper = Color(0xFF211007)
     var items by remember { mutableStateOf<List<DayBrowserItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     var editMode by remember { mutableStateOf(false) }
     val openSections = remember { mutableStateMapOf<DaySection, Boolean>() }
     val openRecurring = remember { mutableStateMapOf<String, Boolean>() }
@@ -92,9 +93,10 @@ internal fun DaysScreen(
 
     LaunchedEffect(engine, observer, now.toLocalDate(), specialDays, userEvents) {
         loading = true
-        items = withContext(Dispatchers.Default) {
-            buildDayItems(engine, observer, now, specialDays, userEvents)
-        }
+        loadError = null
+        val result = withContext(Dispatchers.Default) { runCatching { buildDayItems(engine, observer, now, specialDays, userEvents) } }
+        items = result.getOrElse { emptyList() }
+        loadError = result.exceptionOrNull()?.message
         loading = false
     }
 
@@ -124,6 +126,8 @@ internal fun DaysScreen(
             }
             if (loading) {
                 CircularProgressIndicator(color = gold, modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else if (loadError != null) {
+                Text("Days could not be calculated. Please close this screen and try again.", color = ivory)
             } else {
                 DaySection.entries.forEach { section ->
                     val sectionItems = items.filter { (overrides[it.key] ?: it.defaultSection) == section }
@@ -197,50 +201,81 @@ private fun buildDayItems(
 ): List<DayBrowserItem> {
     val end = now.plusMonths(12)
     val result = mutableListOf<DayBrowserItem>()
+    val tithiCache = mutableMapOf<Int, List<DayOccurrence>>()
+    val nakshatraCache = mutableMapOf<Int, List<DayOccurrence>>()
+    val solarRashiCache = mutableMapOf<Int, List<DayOccurrence>>()
+    val lunarRashiCache = mutableMapOf<Int, List<DayOccurrence>>()
+
+    fun collectIntervals(intervalAt: (ZonedDateTime) -> Pair<ZonedDateTime, ZonedDateTime>?): List<DayOccurrence> {
+        val found = mutableListOf<DayOccurrence>()
+        var cursor = now
+        while (cursor.isBefore(end)) {
+            val interval = intervalAt(cursor) ?: break
+            if (interval.first.isAfter(end)) break
+            if (interval.second.isAfter(now)) found += DayOccurrence(interval.first)
+            cursor = interval.second.plusMinutes(2)
+        }
+        return found.distinctBy { it.at.toLocalDate() }.sortedBy { it.at }
+    }
+
+    fun tithiOccurrences(index: Int) = tithiCache.getOrPut(index) {
+        collectIntervals { engine.tithiInterval(it, observer, index) }
+    }
+    fun nakshatraOccurrences(index: Int) = nakshatraCache.getOrPut(index) {
+        collectIntervals { engine.nakshatraInterval(it, observer, index) }
+    }
+    fun rashiOccurrences(index: Int, solar: Boolean) = (if (solar) solarRashiCache else lunarRashiCache).getOrPut(index) {
+        collectIntervals { engine.rashiInterval(it, observer, index, solar) }
+    }
+    fun tithiIndexes(number: Int, paksha: String?): List<Int> = when (paksha) {
+        "Shukla" -> listOf(number - 1)
+        "Krishna" -> listOf(number + 14)
+        else -> listOf(number - 1, number + 14)
+    }
+    fun firstMatching(candidates: List<DayOccurrence>, predicate: (dev.yantra.app.calendar.YantraState, dev.yantra.app.calendar.YantraState) -> Boolean): DayOccurrence? {
+        return candidates.sortedBy { it.at }.firstOrNull { occurrence ->
+            val sample = occurrence.at.plusMinutes(2)
+            val state = engine.compute(sample, observer, includeLagna = false)
+            val previous = engine.compute(sample.minusDays(1), observer, includeLagna = false)
+            predicate(state, previous)
+        }
+    }
+
     recurringTithis.forEach { recurring ->
-        val occurrences = recurring.indexes.flatMap { index ->
-            val found = mutableListOf<DayOccurrence>()
-            var cursor = now
-            while (cursor.isBefore(end)) {
-                val interval = engine.tithiInterval(cursor, observer, index) ?: break
-                if (interval.first.isAfter(end)) break
-                if (!interval.first.isBefore(now)) found += DayOccurrence(interval.first)
-                cursor = interval.second.plusMinutes(1)
-            }
-            found
-        }.distinctBy { it.at.toLocalDate() }.sortedBy { it.at }
+        val occurrences = recurring.indexes.flatMap(::tithiOccurrences).distinctBy { it.at.toLocalDate() }.sortedBy { it.at }
         result += DayBrowserItem("recurring:${recurring.name}", recurring.name, DaySection.Special, occurrences, recurring = true)
     }
     val annualFestivals = FestivalCatalog.definitions.filterNot { it.month == null && it.solarRashi == null && it.tithiNumber in listOf(11, 13) }
-    val festivalDates = mutableMapOf<String, ZonedDateTime>()
-    val specialDates = mutableMapOf<String, ZonedDateTime>()
-    val userDates = mutableMapOf<String, ZonedDateTime>()
-    var candidate = now.toLocalDate().atTime(12, 0).atZone(now.zone)
-    while (!candidate.isAfter(end) && (festivalDates.size < annualFestivals.size || specialDates.size < specialDays.size || userDates.size < userEvents.size)) {
-        val state = engine.compute(candidate, observer)
-        val previous = engine.compute(candidate.minusDays(1), observer)
-        annualFestivals.forEach { festival ->
-            if (festival.name !in festivalDates && FestivalCatalog.matches(festival, state, previous)) festivalDates[festival.name] = candidate
-        }
-        specialDays.forEach { day ->
-            val key = "${day.name}:${day.month}:${day.paksha}:${day.tithiNumber}"
-            if (key !in specialDates && day.matches(state)) specialDates[key] = candidate
-        }
-        userEvents.forEach { event ->
-            val key = event.identityKey()
-            if (key !in userDates && event.matches(state)) userDates[key] = candidate
-        }
-        candidate = candidate.plusDays(1)
-    }
     annualFestivals.forEach { festival ->
-        festivalDates[festival.name]?.let { result += DayBrowserItem("festival:${festival.name}", festival.name, DaySection.Festivals, listOf(DayOccurrence(it))) }
+        val candidates = when {
+            festival.tithiNumber != null -> tithiIndexes(festival.tithiNumber, festival.paksha).flatMap(::tithiOccurrences)
+            festival.nakshatra != null -> dev.yantra.app.calendar.CalendarCatalog.nakshatras.indexOfFirst { it.name == festival.nakshatra }.takeIf { it >= 0 }?.let(::nakshatraOccurrences).orEmpty()
+            festival.solarRashi != null -> dev.yantra.app.calendar.CalendarCatalog.rashis.indexOfFirst { it.name == festival.solarRashi }.takeIf { it >= 0 }?.let { rashiOccurrences(it, solar = true) }.orEmpty()
+            else -> emptyList()
+        }
+        firstMatching(candidates) { state, previous -> FestivalCatalog.matches(festival, state, previous) }?.let {
+            result += DayBrowserItem("festival:${festival.name}", festival.name, DaySection.Festivals, listOf(it))
+        }
     }
     specialDays.forEach { day ->
         val key = "${day.name}:${day.month}:${day.paksha}:${day.tithiNumber}"
-        specialDates[key]?.let { result += DayBrowserItem("special:$key", day.name, DaySection.Special, listOf(DayOccurrence(it))) }
+        val candidates = tithiIndexes(day.tithiNumber, day.paksha).flatMap(::tithiOccurrences)
+        firstMatching(candidates) { state, _ -> day.matches(state) }?.let {
+            result += DayBrowserItem("special:$key", day.name, DaySection.Special, listOf(it))
+        }
     }
     userEvents.forEach { event ->
-        userDates[event.identityKey()]?.let { result += DayBrowserItem("user:${event.identityKey()}", event.name, DaySection.User, listOf(DayOccurrence(it))) }
+        val candidates = when {
+            event.tithiIndex != null -> tithiOccurrences(event.tithiIndex)
+            event.nakshatra != null -> dev.yantra.app.calendar.CalendarCatalog.nakshatras.indexOfFirst { it.name == event.nakshatra }.takeIf { it >= 0 }?.let(::nakshatraOccurrences).orEmpty()
+            event.rashi != null -> dev.yantra.app.calendar.CalendarCatalog.rashis.indexOfFirst { it.name == event.rashi }.takeIf { it >= 0 }?.let { index -> rashiOccurrences(index, true) + rashiOccurrences(index, false) }.orEmpty()
+            event.paksha == "Shukla" -> tithiOccurrences(0)
+            event.paksha == "Krishna" -> tithiOccurrences(15)
+            else -> tithiOccurrences(0) + tithiOccurrences(15)
+        }
+        firstMatching(candidates) { state, _ -> event.matches(state) }?.let {
+            result += DayBrowserItem("user:${event.identityKey()}", event.name, DaySection.User, listOf(it))
+        }
     }
     return result.sortedBy { it.name }
 }

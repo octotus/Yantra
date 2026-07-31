@@ -159,7 +159,7 @@ class YantraCalendarEngine(
 
     fun current(observer: Observer): YantraState = compute(ZonedDateTime.now(), observer)
 
-    fun compute(dateTime: ZonedDateTime, observer: Observer): YantraState {
+    fun compute(dateTime: ZonedDateTime, observer: Observer, includeLagna: Boolean = true): YantraState {
         val celestial = astronomyEngine.compute(dateTime, observer)
         val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
         val siderealSun = if (celestial.longitudesAreSidereal) {
@@ -191,7 +191,7 @@ class YantraCalendarEngine(
         val siderealAscendant = celestial.ascendantLongitude?.let { ascendant ->
             if (celestial.longitudesAreSidereal) ascendant else normalizeDegrees(ascendant - ayanamsa)
         }
-        val lagnaResolution = resolveDailyLagnaSectors(dateTime, observer)
+        val lagnaResolution = if (includeLagna) resolveDailyLagnaSectors(dateTime, observer) else equalLagnaResolution()
         val lagnaRashiIndex = siderealAscendant?.let { floor(it / 30.0).toInt().coerceIn(0, 11) }
 
         return YantraState(
