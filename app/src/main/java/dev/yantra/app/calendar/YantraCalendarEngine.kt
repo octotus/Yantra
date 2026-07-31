@@ -34,6 +34,51 @@ class YantraCalendarEngine(
             refineNakshatraBoundary(after.minusMinutes(30), after, observer, targetIndex, entering = false)
     }
 
+    fun rashiInterval(
+        dateTime: ZonedDateTime,
+        observer: Observer,
+        targetIndex: Int,
+        solar: Boolean,
+    ): Pair<ZonedDateTime, ZonedDateTime>? {
+        val stepHours = if (solar) 12L else 2L
+        val horizonHours = if (solar) 24 * 380 else 24 * 35
+        val indexAt: (ZonedDateTime) -> Int = { candidate ->
+            val state = compute(candidate, observer)
+            if (solar) state.solarRashi.index else state.lunarRashi.index
+        }
+        var anchor: ZonedDateTime? = null
+        for (offsetHours in 0..horizonHours step stepHours.toInt()) {
+            val candidate = dateTime.plusHours(offsetHours.toLong())
+            if (indexAt(candidate) == targetIndex) {
+                anchor = candidate
+                break
+            }
+        }
+        val inside = anchor ?: return null
+        var before = inside
+        while (indexAt(before) == targetIndex) before = before.minusHours(stepHours)
+        var after = inside
+        while (indexAt(after) == targetIndex) after = after.plusHours(stepHours)
+        return refineSegmentBoundary(before, before.plusHours(stepHours), targetIndex, entering = true, indexAt) to
+            refineSegmentBoundary(after.minusHours(stepHours), after, targetIndex, entering = false, indexAt)
+    }
+
+    private fun refineSegmentBoundary(
+        start: ZonedDateTime,
+        end: ZonedDateTime,
+        targetIndex: Int,
+        entering: Boolean,
+        indexAt: (ZonedDateTime) -> Int,
+    ): ZonedDateTime {
+        var low = start
+        var high = end
+        while (Duration.between(low, high).toMinutes() > 1) {
+            val middle = low.plusSeconds(Duration.between(low, high).seconds / 2)
+            if ((indexAt(middle) == targetIndex) == entering) high = middle else low = middle
+        }
+        return high
+    }
+
     private fun refineNakshatraBoundary(
         start: ZonedDateTime,
         end: ZonedDateTime,
