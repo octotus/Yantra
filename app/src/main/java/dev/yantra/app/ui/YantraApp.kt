@@ -268,6 +268,7 @@ fun YantraApp() {
                             observer = observer,
                             now = ZonedDateTime.now(observerLocation.zoneId),
                             todayFestival = todayFestival,
+                            calendarConfigKey = "$calendarLocaleRuleId|$monthReckoningId",
                             specialDays = specialDays,
                             userEvents = userEvents,
                             onDismiss = { daysScreenOpen = false },

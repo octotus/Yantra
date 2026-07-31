@@ -30,13 +30,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.yantra.app.calendar.YantraCalendarEngine
+import dev.yantra.app.calendar.ObservanceState
 import dev.yantra.app.engine.Observer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 private const val DAY_SECTION_PREFS = "yantra_day_sections"
+private const val DAY_CACHE_PREFS = "yantra_day_cache"
 
 private enum class DaySection(val label: String) {
     Festivals("Festivals"),
@@ -72,6 +76,7 @@ internal fun DaysScreen(
     observer: Observer,
     now: ZonedDateTime,
     todayFestival: FestivalDefinition?,
+    calendarConfigKey: String,
     specialDays: List<SpecialDay>,
     userEvents: List<UserEvent>,
     onDismiss: () -> Unit,
@@ -91,12 +96,19 @@ internal fun DaysScreen(
     val openRecurring = remember { mutableStateMapOf<String, Boolean>() }
     val overrides = remember { mutableStateMapOf<String, DaySection>().apply { putAll(loadDaySections(context)) } }
 
-    LaunchedEffect(engine, observer, now.toLocalDate(), specialDays, userEvents) {
+    LaunchedEffect(engine, observer, now.toLocalDate(), specialDays, userEvents, calendarConfigKey) {
         loading = true
         loadError = null
+        val cacheKey = dayCacheKey(observer, now, calendarConfigKey, specialDays, userEvents)
+        loadCachedDayItems(context, cacheKey)?.let { cached ->
+            items = cached
+            loading = false
+            return@LaunchedEffect
+        }
         val result = withContext(Dispatchers.Default) { runCatching { buildDayItems(engine, observer, now, specialDays, userEvents) } }
         items = result.getOrElse { emptyList() }
         loadError = result.exceptionOrNull()?.message
+        if (result.isSuccess) saveCachedDayItems(context, cacheKey, items)
         loading = false
     }
 
@@ -232,14 +244,32 @@ private fun buildDayItems(
         "Krishna" -> listOf(number + 14)
         else -> listOf(number - 1, number + 14)
     }
-    fun firstMatching(candidates: List<DayOccurrence>, predicate: (dev.yantra.app.calendar.YantraState, dev.yantra.app.calendar.YantraState) -> Boolean): DayOccurrence? {
+    fun firstMatching(candidates: List<DayOccurrence>, predicate: (ObservanceState, ObservanceState) -> Boolean): DayOccurrence? {
         return candidates.sortedBy { it.at }.firstOrNull { occurrence ->
             val sample = occurrence.at.plusMinutes(2)
-            val state = engine.compute(sample, observer, includeLagna = false)
-            val previous = engine.compute(sample.minusDays(1), observer, includeLagna = false)
+            val state = engine.observanceState(sample, observer)
+            val previous = engine.observanceState(sample.minusDays(1), observer)
             predicate(state, previous)
         }
     }
+    fun festivalMatches(festival: FestivalDefinition, state: ObservanceState, previous: ObservanceState): Boolean {
+        val tithiNumber = (state.tithiIndex % 15) + 1
+        return (festival.month == null || festival.month == state.lunarMonth) &&
+            (festival.paksha == null || festival.paksha == state.paksha) &&
+            (festival.tithiNumber == null || festival.tithiNumber == tithiNumber) &&
+            (festival.solarRashi == null || festival.solarRashi == state.solarRashiName) &&
+            (festival.previousSolarRashi == null || festival.previousSolarRashi == previous.solarRashiName) &&
+            (festival.nakshatra == null || festival.nakshatra == state.nakshatraName)
+    }
+    fun specialMatches(day: SpecialDay, state: ObservanceState): Boolean =
+        day.month == state.lunarMonth && day.paksha == state.paksha && day.tithiNumber == (state.tithiIndex % 15) + 1
+    fun userMatches(event: UserEvent, state: ObservanceState): Boolean =
+        event.criteriaCount() >= 2 &&
+            (event.month == null || event.month == state.lunarMonth) &&
+            (event.paksha == null || event.paksha == state.paksha) &&
+            (event.tithiIndex == null || event.tithiIndex == state.tithiIndex) &&
+            (event.nakshatra == null || event.nakshatra == state.nakshatraName) &&
+            (event.rashi == null || event.rashi == state.solarRashiName || event.rashi == state.lunarRashiName)
 
     recurringTithis.forEach { recurring ->
         val occurrences = recurring.indexes.flatMap(::tithiOccurrences).distinctBy { it.at.toLocalDate() }.sortedBy { it.at }
@@ -253,14 +283,14 @@ private fun buildDayItems(
             festival.solarRashi != null -> dev.yantra.app.calendar.CalendarCatalog.rashis.indexOfFirst { it.name == festival.solarRashi }.takeIf { it >= 0 }?.let { rashiOccurrences(it, solar = true) }.orEmpty()
             else -> emptyList()
         }
-        firstMatching(candidates) { state, previous -> FestivalCatalog.matches(festival, state, previous) }?.let {
+        firstMatching(candidates) { state, previous -> festivalMatches(festival, state, previous) }?.let {
             result += DayBrowserItem("festival:${festival.name}", festival.name, DaySection.Festivals, listOf(it))
         }
     }
     specialDays.forEach { day ->
         val key = "${day.name}:${day.month}:${day.paksha}:${day.tithiNumber}"
         val candidates = tithiIndexes(day.tithiNumber, day.paksha).flatMap(::tithiOccurrences)
-        firstMatching(candidates) { state, _ -> day.matches(state) }?.let {
+        firstMatching(candidates) { state, _ -> specialMatches(day, state) }?.let {
             result += DayBrowserItem("special:$key", day.name, DaySection.Special, listOf(it))
         }
     }
@@ -273,7 +303,7 @@ private fun buildDayItems(
             event.paksha == "Krishna" -> tithiOccurrences(15)
             else -> tithiOccurrences(0) + tithiOccurrences(15)
         }
-        firstMatching(candidates) { state, _ -> event.matches(state) }?.let {
+        firstMatching(candidates) { state, _ -> userMatches(event, state) }?.let {
             result += DayBrowserItem("user:${event.identityKey()}", event.name, DaySection.User, listOf(it))
         }
     }
@@ -289,4 +319,52 @@ private fun saveDaySections(context: Context, values: Map<String, DaySection>) {
     context.getSharedPreferences(DAY_SECTION_PREFS, Context.MODE_PRIVATE).edit().clear().apply {
         values.forEach { (key, section) -> putString(key, section.name) }
     }.apply()
+}
+
+private fun dayCacheKey(
+    observer: Observer,
+    now: ZonedDateTime,
+    calendarConfigKey: String,
+    specialDays: List<SpecialDay>,
+    userEvents: List<UserEvent>,
+): String = listOf(
+    "%.4f".format(observer.latitude),
+    "%.4f".format(observer.longitude),
+    now.zone.id,
+    now.toLocalDate().toString(),
+    calendarConfigKey,
+    specialDays.joinToString { "${it.name}:${it.month}:${it.paksha}:${it.tithiNumber}" },
+    userEvents.joinToString { it.identityKey() },
+).joinToString("|").hashCode().toString()
+
+private fun loadCachedDayItems(context: Context, key: String): List<DayBrowserItem>? {
+    val raw = context.getSharedPreferences(DAY_CACHE_PREFS, Context.MODE_PRIVATE).getString(key, null) ?: return null
+    return runCatching {
+        val array = JSONArray(raw)
+        List(array.length()) { index ->
+            val value = array.getJSONObject(index)
+            val occurrences = value.getJSONArray("occurrences")
+            DayBrowserItem(
+                key = value.getString("key"),
+                name = value.getString("name"),
+                defaultSection = DaySection.valueOf(value.getString("section")),
+                recurring = value.getBoolean("recurring"),
+                occurrences = List(occurrences.length()) { occurrence -> DayOccurrence(ZonedDateTime.parse(occurrences.getString(occurrence))) },
+            )
+        }
+    }.getOrNull()
+}
+
+private fun saveCachedDayItems(context: Context, key: String, items: List<DayBrowserItem>) {
+    val array = JSONArray()
+    items.forEach { item ->
+        array.put(JSONObject().apply {
+            put("key", item.key)
+            put("name", item.name)
+            put("section", item.defaultSection.name)
+            put("recurring", item.recurring)
+            put("occurrences", JSONArray().apply { item.occurrences.forEach { put(it.at.toString()) } })
+        })
+    }
+    context.getSharedPreferences(DAY_CACHE_PREFS, Context.MODE_PRIVATE).edit().clear().putString(key, array.toString()).apply()
 }

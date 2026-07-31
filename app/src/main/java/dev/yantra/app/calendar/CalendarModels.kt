@@ -64,6 +64,15 @@ data class YantraState(
     val yoga: Segment,
 )
 
+data class ObservanceState(
+    val tithiIndex: Int,
+    val nakshatraName: String,
+    val solarRashiName: String,
+    val lunarRashiName: String,
+    val lunarMonth: String,
+    val paksha: String,
+)
+
 object CalendarCatalog {
     val lunarMonths = listOf(
         MonthSector(0, "Chaitra", "CHA", 29.5, 30.0),

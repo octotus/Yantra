@@ -13,6 +13,28 @@ class YantraCalendarEngine(
     private val calendarLocaleRule: CalendarLocaleRule = CalendarCatalog.calendarLocaleRules.first(),
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
 ) {
+    fun observanceState(dateTime: ZonedDateTime, observer: Observer): ObservanceState {
+        val celestial = astronomyEngine.compute(dateTime, observer)
+        val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
+        val siderealSun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsa)
+        val siderealMoon = if (celestial.longitudesAreSidereal) celestial.lunarLongitude else normalizeDegrees(celestial.lunarLongitude - ayanamsa)
+        val elongation = normalizeDegrees(celestial.lunarLongitude - celestial.solarLongitude)
+        val tithiIndex = floor(elongation / 12.0).toInt().coerceIn(0, 29)
+        val paksha = if (tithiIndex < 15) "Shukla" else "Krishna"
+        val previousNewMoon = estimateElongationCrossing(dateTime, observer, 0.0, -elongation, 12.19074864)
+        val newMoonSun = siderealLongitudeAt(previousNewMoon.plusMinutes(2), observer, solar = true)
+        var monthIndex = Math.floorMod(floor(newMoonSun / 30.0).toInt() + 1, 12)
+        if (monthReckoning == MonthReckoning.Purnimanta && paksha == "Krishna") monthIndex = Math.floorMod(monthIndex + 1, 12)
+        return ObservanceState(
+            tithiIndex = tithiIndex,
+            nakshatraName = CalendarCatalog.nakshatras[floor(siderealMoon / (360.0 / 27.0)).toInt().coerceIn(0, 26)].name,
+            solarRashiName = CalendarCatalog.rashis[floor(siderealSun / 30.0).toInt().coerceIn(0, 11)].name,
+            lunarRashiName = CalendarCatalog.rashis[floor(siderealMoon / 30.0).toInt().coerceIn(0, 11)].name,
+            lunarMonth = CalendarCatalog.lunarMonths[monthIndex].name,
+            paksha = paksha,
+        )
+    }
+
     fun tithiInterval(dateTime: ZonedDateTime, observer: Observer, targetIndex: Int): Pair<ZonedDateTime, ZonedDateTime>? {
         val segmentWidth = 12.0
         val elongation = elongationAt(dateTime, observer)
@@ -159,7 +181,7 @@ class YantraCalendarEngine(
 
     fun current(observer: Observer): YantraState = compute(ZonedDateTime.now(), observer)
 
-    fun compute(dateTime: ZonedDateTime, observer: Observer, includeLagna: Boolean = true): YantraState {
+    fun compute(dateTime: ZonedDateTime, observer: Observer): YantraState {
         val celestial = astronomyEngine.compute(dateTime, observer)
         val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
         val siderealSun = if (celestial.longitudesAreSidereal) {
@@ -191,7 +213,7 @@ class YantraCalendarEngine(
         val siderealAscendant = celestial.ascendantLongitude?.let { ascendant ->
             if (celestial.longitudesAreSidereal) ascendant else normalizeDegrees(ascendant - ayanamsa)
         }
-        val lagnaResolution = if (includeLagna) resolveDailyLagnaSectors(dateTime, observer) else equalLagnaResolution()
+        val lagnaResolution = resolveDailyLagnaSectors(dateTime, observer)
         val lagnaRashiIndex = siderealAscendant?.let { floor(it / 30.0).toInt().coerceIn(0, 11) }
 
         return YantraState(
