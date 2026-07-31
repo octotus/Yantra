@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -25,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -111,6 +113,8 @@ internal fun YantraSettingsScreen(
     monthNameSetId: String,
     calendarLocaleRuleId: String,
     monthReckoningId: String,
+    observerLocation: ObserverLocation,
+    notificationsEnabled: Boolean,
     onDismiss: () -> Unit,
     onLogoSelected: (Uri) -> Unit,
     onLogoCleared: () -> Unit,
@@ -119,6 +123,8 @@ internal fun YantraSettingsScreen(
     onMonthNameSetChanged: (String) -> Unit,
     onCalendarLocaleRuleChanged: (String) -> Unit,
     onMonthReckoningChanged: (String) -> Unit,
+    onObserverLocationChanged: (ObserverLocation) -> Unit,
+    onNotificationsChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val logoBitmap = remember(logoPath) { logoPath?.let(::loadLogoBitmap) }
@@ -181,12 +187,31 @@ internal fun YantraSettingsScreen(
             }
 
             Text("Calendar", color = gold, style = MaterialTheme.typography.titleMedium)
+            ObserverLocationPanel(
+                current = observerLocation,
+                textColor = ivory,
+                accentColor = gold,
+                onChanged = onObserverLocationChanged,
+            )
             CycleIdCriterion(
                 label = "Month Names",
                 selectedId = monthNameSetId,
                 options = CalendarCatalog.monthNameSets.map { it.id to it.displayName },
                 onValue = onMonthNameSetChanged,
             )
+
+            Text("Notifications", color = gold, style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Important-day notifications", color = ivory)
+                    Text("Quiet status-bar reminders; no sound or vibration. Amavasya is included.", color = ivory.copy(alpha = 0.68f))
+                }
+                Switch(checked = notificationsEnabled, onCheckedChange = onNotificationsChanged)
+            }
             CycleIdCriterion(
                 label = "New Year",
                 selectedId = calendarLocaleRuleId,

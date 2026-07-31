@@ -13,6 +13,43 @@ class YantraCalendarEngine(
     private val calendarLocaleRule: CalendarLocaleRule = CalendarCatalog.calendarLocaleRules.first(),
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
 ) {
+    fun nakshatraInterval(dateTime: ZonedDateTime, observer: Observer, targetIndex: Int): Pair<ZonedDateTime, ZonedDateTime>? {
+        var inside: ZonedDateTime? = null
+        for (offsetHours in 0..(24 * 16) step 2) {
+            for (direction in listOf(1, -1)) {
+                val candidate = dateTime.plusHours(offsetHours.toLong() * direction)
+                if (compute(candidate, observer).nakshatra.index == targetIndex) {
+                    inside = candidate
+                    break
+                }
+            }
+            if (inside != null) break
+        }
+        val anchor = inside ?: return null
+        var before = anchor
+        while (compute(before, observer).nakshatra.index == targetIndex) before = before.minusMinutes(30)
+        var after = anchor
+        while (compute(after, observer).nakshatra.index == targetIndex) after = after.plusMinutes(30)
+        return refineNakshatraBoundary(before, before.plusMinutes(30), observer, targetIndex, entering = true) to
+            refineNakshatraBoundary(after.minusMinutes(30), after, observer, targetIndex, entering = false)
+    }
+
+    private fun refineNakshatraBoundary(
+        start: ZonedDateTime,
+        end: ZonedDateTime,
+        observer: Observer,
+        targetIndex: Int,
+        entering: Boolean,
+    ): ZonedDateTime {
+        var low = start
+        var high = end
+        while (java.time.Duration.between(low, high).toMinutes() > 1) {
+            val middle = low.plusSeconds(java.time.Duration.between(low, high).seconds / 2)
+            val isTarget = compute(middle, observer).nakshatra.index == targetIndex
+            if (isTarget == entering) high = middle else low = middle
+        }
+        return high
+    }
     private companion object {
         private const val SAMVATSARA_YEAR_OFFSET = 53
     }

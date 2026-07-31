@@ -1,5 +1,11 @@
 package dev.yantra.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -38,6 +44,7 @@ import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import dev.yantra.app.R
 import dev.yantra.app.calendar.CalendarCatalog
 import dev.yantra.app.calendar.LagnaSector
@@ -83,11 +90,12 @@ fun YantraApp() {
             monthReckoning = monthReckoning,
         )
     }
-    val observer = remember { Observer(latitude = 45.5019, longitude = -73.5674) }
-    var now by remember { mutableStateOf(ZonedDateTime.now()) }
+    var observerLocation by remember(context) { mutableStateOf(loadObserverLocation(context)) }
+    val observer = remember(observerLocation) { observerLocation.observer }
+    var now by remember(observerLocation.timeZoneId) { mutableStateOf(ZonedDateTime.now(observerLocation.zoneId)) }
     var datePreviewActive by remember { mutableStateOf(false) }
-    val state = remember(now, engine) { engine.compute(now, observer) }
-    val previousState = remember(now, engine) { engine.compute(now.minusDays(1), observer) }
+    val state = remember(now, engine, observer) { engine.compute(now, observer) }
+    val previousState = remember(now, engine, observer) { engine.compute(now.minusDays(1), observer) }
     val festival = remember(state, previousState) { FestivalCatalog.match(state, previousState) }
     var specialDays by remember(context) { mutableStateOf(loadSpecialDays(context)) }
     val specialDay = remember(state, specialDays) { specialDays.firstOrNull { it.matches(state) } }
@@ -102,21 +110,27 @@ fun YantraApp() {
     var specialDayEditorOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            if (!datePreviewActive) {
-                now = ZonedDateTime.now()
-            }
-            delay(60_000)
-        }
+    var notificationEnabled by remember(context) { mutableStateOf(notificationsEnabled(context)) }
+    var notificationExplanationOpen by remember(context) {
+        mutableStateOf(notificationEnabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            notificationEnabled = false
+            setNotificationsEnabled(context, false)
+        } else ObservanceNotificationScheduler.schedule(context)
     }
 
-    LaunchedEffect(datePreviewActive, now) {
-        if (datePreviewActive) {
-            delay(5_000)
-            datePreviewActive = false
-            now = ZonedDateTime.now()
+    LaunchedEffect(observerLocation, notificationEnabled) {
+        ObservanceNotificationScheduler.createChannel(context)
+        if (notificationEnabled && (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)) {
+            ObservanceNotificationScheduler.schedule(context)
+        }
+        while (true) {
+            if (!datePreviewActive) {
+                now = ZonedDateTime.now(observerLocation.zoneId)
+            }
+            delay(60_000)
         }
     }
 
@@ -138,6 +152,19 @@ fun YantraApp() {
         if (annotation != null) {
             delay(3_000)
             annotation = null
+        }
+    }
+
+    BackHandler(enabled = datePickerOpen || settingsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
+        when {
+            datePickerOpen -> datePickerOpen = false
+            settingsOpen -> settingsOpen = false
+            specialDayEditorOpen -> specialDayEditorOpen = false
+            annotation != null -> annotation = null
+            datePreviewActive -> {
+                datePreviewActive = false
+                now = ZonedDateTime.now(observerLocation.zoneId)
+            }
         }
     }
 
@@ -169,6 +196,7 @@ fun YantraApp() {
                         observanceLabel = observanceLabel,
                         showFestivalLabel = festivalLabelVisible,
                         annotation = annotation,
+                        showBack = datePreviewActive,
                         userLogo = userLogo,
                         userLogoLit = userLogo != null && userEvent != null,
                         now = now,
@@ -179,12 +207,18 @@ fun YantraApp() {
                         onDateTap = { datePickerOpen = true },
                         onDateLongPress = { specialDayEditorOpen = true },
                         onSettingsTap = { settingsOpen = true },
+                        onBackTap = {
+                            datePreviewActive = false
+                            now = ZonedDateTime.now(observerLocation.zoneId)
+                        },
                         onFestivalTap = {
                             if (observanceLabel != null) {
                                 festivalLabelVisible = true
                             }
                         },
-                        onAnnotation = { annotation = it },
+                        onAnnotation = { tapped ->
+                            annotation = tapped.withDuration(context, now, state, engine, observer)
+                        },
                     )
                     if (datePickerOpen) {
                         CryptexDatePicker(
@@ -206,6 +240,8 @@ fun YantraApp() {
                             monthNameSetId = monthNameSetId,
                             calendarLocaleRuleId = calendarLocaleRuleId,
                             monthReckoningId = monthReckoningId,
+                            observerLocation = observerLocation,
+                            notificationsEnabled = notificationEnabled,
                             onDismiss = { settingsOpen = false },
                             onLogoSelected = { uri ->
                                 val path = saveUserLogo(context, uri)
@@ -235,6 +271,39 @@ fun YantraApp() {
                             onMonthReckoningChanged = { id ->
                                 saveMonthReckoningId(context, id)
                                 monthReckoningId = id
+                            },
+                            onObserverLocationChanged = { next ->
+                                observerLocation = next
+                                now = now.withZoneSameInstant(next.zoneId)
+                                datePreviewActive = false
+                                ObservanceNotificationScheduler.reschedule(context)
+                            },
+                            onNotificationsChanged = { enabled ->
+                                notificationEnabled = enabled
+                                setNotificationsEnabled(context, enabled)
+                                if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                    notificationExplanationOpen = true
+                                }
+                            },
+                        )
+                    }
+                    if (notificationExplanationOpen) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { notificationExplanationOpen = false },
+                            title = { androidx.compose.material3.Text("Quiet important-day reminders") },
+                            text = { androidx.compose.material3.Text("Yantra places a quiet symbol in the status bar on important festival days, user days, and Amavasya. It makes no sound or vibration and expires when the event ends. Schedules stay on this device.") },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    notificationExplanationOpen = false
+                                    if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }) { androidx.compose.material3.Text("Allow notifications") }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    notificationExplanationOpen = false
+                                    notificationEnabled = false
+                                    setNotificationsEnabled(context, false)
+                                }) { androidx.compose.material3.Text("Not now") }
                             },
                         )
                     }
@@ -276,6 +345,7 @@ private fun YantraInstrument(
     observanceLabel: String?,
     showFestivalLabel: Boolean,
     annotation: YantraAnnotation?,
+    showBack: Boolean,
     userLogo: ImageBitmap?,
     userLogoLit: Boolean,
     now: ZonedDateTime,
@@ -284,6 +354,7 @@ private fun YantraInstrument(
     onDateTap: () -> Unit,
     onDateLongPress: () -> Unit,
     onSettingsTap: () -> Unit,
+    onBackTap: () -> Unit,
     onFestivalTap: () -> Unit,
     onAnnotation: (YantraAnnotation) -> Unit,
 ) {
@@ -324,6 +395,8 @@ private fun YantraInstrument(
                         onMoonTap()
                     } else if (tap.isInRect(layout.settingsHitRect)) {
                         onSettingsTap()
+                    } else if (showBack && tap.isInRect(layout.backHitRect)) {
+                        onBackTap()
                     } else if (observanceLabel != null && hypot(tap.x - layout.lotusCenter.x, tap.y - layout.lotusCenter.y) <= layout.lotusRadius * 1.35f) {
                         onFestivalTap()
                     } else if (tap.isInRect(layout.dateHitRect)) {
@@ -481,7 +554,17 @@ private fun YantraInstrument(
             drawAnnotationCard(it, sigilImages, center, radius, ringWidth, brightGold)
         }
         drawSettingsGear(layout.settingsHitRect.center, layout.settingsHitRect.width * 0.64f, brightGold)
+        if (showBack) drawBackArrowhead(layout.backHitRect.center, layout.backHitRect.width * 0.54f, brightGold)
     }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackArrowhead(center: Offset, size: Float, gold: Color) {
+    val path = Path().apply {
+        moveTo(center.x + size * 0.28f, center.y - size * 0.42f)
+        lineTo(center.x - size * 0.22f, center.y)
+        lineTo(center.x + size * 0.28f, center.y + size * 0.42f)
+    }
+    drawPath(path, gold.copy(alpha = 0.43f), style = Stroke(width = size * 0.12f, cap = StrokeCap.Round))
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPocketWatchBody(
@@ -623,6 +706,46 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
             bold = true,
         )
     }
+    annotation.durationLabel?.let { duration ->
+        drawIntoCanvas { canvas ->
+            drawEmbossedText(
+                native = canvas.nativeCanvas,
+                text = duration,
+                x = rect.center.x,
+                y = rect.bottom - cardHeight * 0.065f,
+                size = cardHeight * 0.105f,
+                color = Color(0xFFE8CA8B).copy(alpha = 0.9f),
+                bold = false,
+            )
+        }
+    }
+}
+
+private fun YantraAnnotation.withDuration(
+    context: android.content.Context,
+    now: ZonedDateTime,
+    state: YantraState,
+    engine: YantraCalendarEngine,
+    observer: Observer,
+): YantraAnnotation {
+    val interval = when (kind) {
+        AnnotationKind.Rashi -> state.lagnaSectors.firstOrNull { it.index == index }?.let { sector ->
+            val day = now.toLocalDate().atStartOfDay(now.zone)
+            day.plusSeconds((sector.startFraction * 86_400).toLong()) to
+                day.plusSeconds(((sector.startFraction + sector.durationFraction) * 86_400).toLong())
+        }
+        AnnotationKind.Nakshatra -> engine.nakshatraInterval(now, observer, index)
+        AnnotationKind.Masa -> null
+    } ?: return this
+    val timeFormatter = DateTimeFormatter.ofPattern(if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm" else "h:mm a")
+    val sameDay = interval.first.toLocalDate() == interval.second.toLocalDate()
+    val label = if (sameDay) {
+        "${interval.first.format(timeFormatter)} – ${interval.second.format(timeFormatter)}"
+    } else {
+        val dateTime = DateTimeFormatter.ofPattern("MMM d, h:mm a")
+        "${interval.first.format(dateTime)} – ${interval.second.format(dateTime)}"
+    }
+    return copy(durationLabel = label)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircumferenceLabels(

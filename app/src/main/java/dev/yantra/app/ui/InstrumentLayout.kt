@@ -14,6 +14,7 @@ internal data class YantraLayout(
     val radius: Float,
     val dateHitRect: Rect,
     val settingsHitRect: Rect,
+    val backHitRect: Rect,
     val lotusCenter: Offset,
     val lotusRadius: Float,
 )
@@ -28,6 +29,7 @@ internal data class YantraAnnotation(
     val kind: AnnotationKind,
     val index: Int,
     val name: String,
+    val durationLabel: String? = null,
 )
 
 internal fun yantraLayout(width: Float, height: Float): YantraLayout {
@@ -59,7 +61,14 @@ internal fun yantraLayout(width: Float, height: Float): YantraLayout {
         gearCenter.x + gearSize * 0.72f,
         gearCenter.y + gearSize * 0.72f,
     )
-    return YantraLayout(center, radius, dateHitRect, settingsHitRect, lotusCenter, lotusRadius)
+    val backCenter = Offset(width * 0.91f, gearCenter.y)
+    val backHitRect = Rect(
+        backCenter.x - gearSize * 0.72f,
+        backCenter.y - gearSize * 0.72f,
+        backCenter.x + gearSize * 0.72f,
+        backCenter.y + gearSize * 0.72f,
+    )
+    return YantraLayout(center, radius, dateHitRect, settingsHitRect, backHitRect, lotusCenter, lotusRadius)
 }
 
 internal fun lotusRadiusForLayout(ringWidth: Float): Float = ringWidth * 0.76f
