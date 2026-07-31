@@ -1598,13 +1598,26 @@ private fun YantraInstrument(
     }
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackArrowhead(center: Offset, size: Float, gold: Color) {
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackArrowhead(
+    center: Offset,
+    size: Float,
+    gold: Color,
+    prominent: Boolean = false,
+) {
+    if (prominent) {
+        drawCircle(Color(0xFF211007).copy(alpha = 0.92f), size * 0.82f, center)
+        drawCircle(gold.copy(alpha = 0.88f), size * 0.82f, center, style = Stroke(width = size * 0.08f))
+    }
     val path = Path().apply {
         moveTo(center.x + size * 0.28f, center.y - size * 0.42f)
         lineTo(center.x - size * 0.22f, center.y)
         lineTo(center.x + size * 0.28f, center.y + size * 0.42f)
     }
-    drawPath(path, gold.copy(alpha = 0.43f), style = Stroke(width = size * 0.12f, cap = StrokeCap.Round))
+    drawPath(
+        path,
+        gold.copy(alpha = if (prominent) 0.98f else 0.43f),
+        style = Stroke(width = size * if (prominent) 0.17f else 0.12f, cap = StrokeCap.Round),
+    )
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPocketWatchBody(
@@ -1759,7 +1772,8 @@ private fun angleToIndex(tap: Offset, center: Offset, count: Int): Int =
 private fun annotationCardRect(center: Offset, radius: Float, detailLineCount: Int): Rect {
     val width = radius * 1.22f
     val height = radius * when {
-        detailLineCount > 4 -> 1.30f
+        detailLineCount > 6 -> 1.58f
+        detailLineCount > 4 -> 1.36f
         detailLineCount > 0 -> 0.92f
         else -> 0.72f
     }
@@ -1786,19 +1800,20 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
         color = Color(0xFF080604).copy(alpha = 0.86f),
         topLeft = rect.topLeft,
         size = Size(rect.width, rect.height),
-        cornerRadius = CornerRadius(cardHeight * 0.22f, cardHeight * 0.22f),
+        cornerRadius = CornerRadius(cardHeight * 0.065f, cardHeight * 0.065f),
     )
     drawRoundRect(
         color = gold.copy(alpha = 0.58f),
         topLeft = rect.topLeft,
         size = Size(rect.width, rect.height),
-        cornerRadius = CornerRadius(cardHeight * 0.22f, cardHeight * 0.22f),
+        cornerRadius = CornerRadius(cardHeight * 0.065f, cardHeight * 0.065f),
         style = Stroke(width = 0.8.dp.toPx()),
     )
     val backRect = annotationBackRect(rect)
-    drawBackArrowhead(backRect.center, backRect.width * 0.25f, gold)
-    val sigilCenter = Offset(rect.center.x, rect.top + cardHeight * if (detailLines.size > 4) 0.17f else 0.24f)
-    val sigilSize = cardHeight * if (detailLines.size > 4) 0.19f else 0.27f
+    drawBackArrowhead(backRect.center, backRect.width * 0.38f, gold, prominent = true)
+    val denseRashi = detailLines.size > 6
+    val sigilCenter = Offset(rect.center.x, rect.top + cardHeight * if (denseRashi) 0.12f else if (detailLines.size > 4) 0.17f else 0.24f)
+    val sigilSize = cardHeight * if (denseRashi) 0.14f else if (detailLines.size > 4) 0.19f else 0.27f
     when (annotation.kind) {
         AnnotationKind.Rashi -> drawRashiSigil(annotation.index, sigilCenter, sigilSize, gold)
         AnnotationKind.Nakshatra -> drawNakshatraSigil(annotation.index, sigilCenter, sigilSize, gold, sigilImages)
@@ -1819,8 +1834,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
             native = canvas.nativeCanvas,
             text = annotation.name.uppercase(),
             x = rect.center.x,
-            y = if (detailLines.isEmpty()) rect.top + cardHeight * 0.72f else rect.top + cardHeight * if (detailLines.size > 4) 0.31f else 0.48f,
-            size = cardHeight * if (detailLines.size > 4) 0.075f else 0.10f,
+            y = if (detailLines.isEmpty()) rect.top + cardHeight * 0.72f else rect.top + cardHeight * if (denseRashi) 0.23f else if (detailLines.size > 4) 0.31f else 0.48f,
+            size = cardHeight * if (denseRashi) 0.062f else if (detailLines.size > 4) 0.075f else 0.10f,
             color = Color(0xFFFFE8B0),
             bold = true,
         )
@@ -1831,10 +1846,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
                 native = canvas.nativeCanvas,
                 text = line,
                 x = rect.center.x,
-                y = rect.top + cardHeight * if (detailLines.size > 4) (0.43f + index * 0.095f) else (0.68f + index * 0.14f),
-                size = cardHeight * if (detailLines.size > 4) 0.058f else 0.075f,
-                color = Color(0xFFE8CA8B).copy(alpha = 0.9f),
-                bold = false,
+                y = rect.top + cardHeight * if (denseRashi) (0.34f + index * 0.068f) else if (detailLines.size > 4) (0.43f + index * 0.095f) else (0.68f + index * 0.14f),
+                size = cardHeight * if (denseRashi) 0.048f else if (detailLines.size > 4) 0.058f else 0.075f,
+                color = if (denseRashi && index % 3 == 0) Color(0xFFFFE8B0) else Color(0xFFE8CA8B).copy(alpha = 0.9f),
+                bold = denseRashi && index % 3 == 0,
             )
         }
     }
@@ -1856,16 +1871,19 @@ private fun YantraAnnotation.withDuration(
             val day = now.toLocalDate().atStartOfDay(now.zone)
             val interval = day.plusSeconds((sector.startFraction * 86_400).toLong()) to
                 day.plusSeconds(((sector.startFraction + sector.durationFraction) * 86_400).toLong())
-            details += "LAGNA · TODAY"
-            details += "From ${interval.first.format(timeFormatter)}   To ${interval.second.format(timeFormatter)}"
+            details += "Lagna - Today"
+            details += "From: ${interval.first.format(timeFormatter)}"
+            details += "To: ${interval.second.format(timeFormatter)}"
         }
         engine.rashiInterval(now, observer, index, solar = true)?.let { interval ->
             details += "SURYA"
-            details += "From ${interval.first.format(dateFormatter)}   To ${interval.second.format(dateFormatter)}"
+            details += "From: ${interval.first.format(dateFormatter)}"
+            details += "To: ${interval.second.format(dateFormatter)}"
         }
         engine.rashiInterval(now, observer, index, solar = false)?.let { interval ->
-            details += "CHANDRA"
-            details += "From ${interval.first.format(dateTimeFormatter)}   To ${interval.second.format(dateTimeFormatter)}"
+            details += "Chandra"
+            details += "From: ${interval.first.format(dateTimeFormatter)}"
+            details += "To: ${interval.second.format(dateTimeFormatter)}"
         }
         return if (details.isEmpty()) this else copy(durationLabel = details.joinToString("\n"))
     }
