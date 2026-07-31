@@ -43,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +83,9 @@ import dev.yantra.app.engine.EphemerisAssets
 import dev.yantra.app.engine.Observer
 import dev.yantra.app.engine.SwissEphemeris
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -140,6 +144,7 @@ fun YantraApp() {
     var specialDayEditorOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
+    val annotationScope = rememberCoroutineScope()
     var notificationEnabled by remember(context) { mutableStateOf(notificationsEnabled(context)) }
     var notificationExplanationOpen by remember(context) {
         mutableStateOf(notificationEnabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -247,7 +252,15 @@ fun YantraApp() {
                             }
                         },
                         onAnnotation = { tapped ->
-                            annotation = tapped.withDuration(context, now, state, engine, observer)
+                            annotation = tapped
+                            annotationScope.launch {
+                                val detailed = withContext(Dispatchers.Default) {
+                                    tapped.withDuration(context, now, state, engine, observer)
+                                }
+                                if (annotation?.kind == tapped.kind && annotation?.index == tapped.index) {
+                                    annotation = detailed
+                                }
+                            }
                         },
                     )
                     if (datePickerOpen) {

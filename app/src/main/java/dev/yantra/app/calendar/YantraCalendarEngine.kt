@@ -14,24 +14,23 @@ class YantraCalendarEngine(
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
 ) {
     fun nakshatraInterval(dateTime: ZonedDateTime, observer: Observer, targetIndex: Int): Pair<ZonedDateTime, ZonedDateTime>? {
-        var inside: ZonedDateTime? = null
-        for (offsetHours in 0..(24 * 16) step 2) {
-            for (direction in listOf(1, -1)) {
-                val candidate = dateTime.plusHours(offsetHours.toLong() * direction)
-                if (compute(candidate, observer).nakshatra.index == targetIndex) {
-                    inside = candidate
-                    break
-                }
-            }
-            if (inside != null) break
+        val segmentWidth = 360.0 / 27.0
+        val longitude = siderealLongitudeAt(dateTime, observer, solar = false)
+        val targetStart = targetIndex * segmentWidth
+        val currentIndex = floor(longitude / segmentWidth).toInt().coerceIn(0, 26)
+        val progress = normalizeDegrees(longitude - targetStart)
+        val entryDelta = if (currentIndex == targetIndex) -progress else normalizeDegrees(targetStart - longitude)
+        val exitDelta = if (currentIndex == targetIndex) segmentWidth - progress else normalizeDegrees(targetStart - longitude) + segmentWidth
+        val degreesPerDay = 13.176396
+        val entryEstimate = dateTime.plusSeconds((entryDelta / degreesPerDay * 86_400.0).toLong())
+        val exitEstimate = dateTime.plusSeconds((exitDelta / degreesPerDay * 86_400.0).toLong())
+        val indexAt: (ZonedDateTime) -> Int = { candidate ->
+            floor(siderealLongitudeAt(candidate, observer, solar = false) / segmentWidth).toInt().coerceIn(0, 26)
         }
-        val anchor = inside ?: return null
-        var before = anchor
-        while (compute(before, observer).nakshatra.index == targetIndex) before = before.minusMinutes(30)
-        var after = anchor
-        while (compute(after, observer).nakshatra.index == targetIndex) after = after.plusMinutes(30)
-        return refineNakshatraBoundary(before, before.plusMinutes(30), observer, targetIndex, entering = true) to
-            refineNakshatraBoundary(after.minusMinutes(30), after, observer, targetIndex, entering = false)
+        val halfWindow = Duration.ofHours(12)
+        val entry = refineEstimatedBoundary(entryEstimate, halfWindow, targetIndex, entering = true, indexAt) ?: return null
+        val exit = refineEstimatedBoundary(exitEstimate, halfWindow, targetIndex, entering = false, indexAt) ?: return null
+        return entry to exit
     }
 
     fun rashiInterval(
@@ -40,38 +39,39 @@ class YantraCalendarEngine(
         targetIndex: Int,
         solar: Boolean,
     ): Pair<ZonedDateTime, ZonedDateTime>? {
-        val stepHours = if (solar) 12L else 2L
-        val horizonHours = if (solar) 24 * 380 else 24 * 35
         val indexAt: (ZonedDateTime) -> Int = { candidate ->
-            val state = compute(candidate, observer)
-            if (solar) state.solarRashi.index else state.lunarRashi.index
+            rashiIndexAt(candidate, observer, solar)
         }
-        var anchor: ZonedDateTime? = null
-        for (offsetHours in 0..horizonHours step stepHours.toInt()) {
-            val candidate = dateTime.plusHours(offsetHours.toLong())
-            if (indexAt(candidate) == targetIndex) {
-                anchor = candidate
-                break
-            }
-        }
-        val inside = anchor ?: return null
-        var before = inside
-        while (indexAt(before) == targetIndex) before = before.minusHours(stepHours)
-        var after = inside
-        while (indexAt(after) == targetIndex) after = after.plusHours(stepHours)
-        return refineSegmentBoundary(before, before.plusHours(stepHours), targetIndex, entering = true, indexAt) to
-            refineSegmentBoundary(after.minusHours(stepHours), after, targetIndex, entering = false, indexAt)
+        val longitude = siderealLongitudeAt(dateTime, observer, solar)
+        val targetStart = targetIndex * 30.0
+        val currentIndex = floor(longitude / 30.0).toInt().coerceIn(0, 11)
+        val degreesPerDay = if (solar) 0.98564736 else 13.176396
+        val progress = normalizeDegrees(longitude - targetStart)
+        val entryDelta = if (currentIndex == targetIndex) -progress else normalizeDegrees(targetStart - longitude)
+        val exitDelta = if (currentIndex == targetIndex) 30.0 - progress else normalizeDegrees(targetStart - longitude) + 30.0
+        val entryEstimate = dateTime.plusSeconds((entryDelta / degreesPerDay * 86_400.0).toLong())
+        val exitEstimate = dateTime.plusSeconds((exitDelta / degreesPerDay * 86_400.0).toLong())
+        val halfWindow = if (solar) Duration.ofDays(4) else Duration.ofHours(18)
+        val entry = refineEstimatedBoundary(entryEstimate, halfWindow, targetIndex, entering = true, indexAt) ?: return null
+        val exit = refineEstimatedBoundary(exitEstimate, halfWindow, targetIndex, entering = false, indexAt) ?: return null
+        return entry to exit
     }
 
-    private fun refineSegmentBoundary(
-        start: ZonedDateTime,
-        end: ZonedDateTime,
+    private fun refineEstimatedBoundary(
+        estimate: ZonedDateTime,
+        halfWindow: Duration,
         targetIndex: Int,
         entering: Boolean,
         indexAt: (ZonedDateTime) -> Int,
-    ): ZonedDateTime {
-        var low = start
-        var high = end
+    ): ZonedDateTime? {
+        var low = estimate.minus(halfWindow)
+        var high = estimate.plus(halfWindow)
+        val bracketed = if (entering) {
+            indexAt(low) != targetIndex && indexAt(high) == targetIndex
+        } else {
+            indexAt(low) == targetIndex && indexAt(high) != targetIndex
+        }
+        if (!bracketed) return null
         while (Duration.between(low, high).toMinutes() > 1) {
             val middle = low.plusSeconds(Duration.between(low, high).seconds / 2)
             if ((indexAt(middle) == targetIndex) == entering) high = middle else low = middle
@@ -79,22 +79,20 @@ class YantraCalendarEngine(
         return high
     }
 
-    private fun refineNakshatraBoundary(
-        start: ZonedDateTime,
-        end: ZonedDateTime,
-        observer: Observer,
-        targetIndex: Int,
-        entering: Boolean,
-    ): ZonedDateTime {
-        var low = start
-        var high = end
-        while (java.time.Duration.between(low, high).toMinutes() > 1) {
-            val middle = low.plusSeconds(java.time.Duration.between(low, high).seconds / 2)
-            val isTarget = compute(middle, observer).nakshatra.index == targetIndex
-            if (isTarget == entering) high = middle else low = middle
-        }
-        return high
+    private fun rashiIndexAt(dateTime: ZonedDateTime, observer: Observer, solar: Boolean): Int {
+        return floor(siderealLongitudeAt(dateTime, observer, solar) / 30.0).toInt().coerceIn(0, 11)
     }
+
+    private fun siderealLongitudeAt(dateTime: ZonedDateTime, observer: Observer, solar: Boolean): Double {
+        val celestial = astronomyEngine.compute(dateTime, observer)
+        val longitude = if (solar) celestial.solarLongitude else celestial.lunarLongitude
+        return if (celestial.longitudesAreSidereal) {
+            longitude
+        } else {
+            normalizeDegrees(longitude - lahiriAyanamsaApprox(celestial.julianDay))
+        }
+    }
+
     private companion object {
         private const val SAMVATSARA_YEAR_OFFSET = 53
     }
