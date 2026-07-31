@@ -131,6 +131,10 @@ fun YantraApp() {
     val state = remember(now, engine, observer) { engine.compute(now, observer) }
     val previousState = remember(now, engine, observer) { engine.compute(now.minusDays(1), observer) }
     val festival = remember(state, previousState) { FestivalCatalog.match(state, previousState) }
+    val todayFestival = remember(engine, observer, observerLocation.timeZoneId, now.toLocalDate()) {
+        val today = ZonedDateTime.now(observerLocation.zoneId).toLocalDate().atTime(12, 0).atZone(observerLocation.zoneId)
+        FestivalCatalog.match(engine.compute(today, observer), engine.compute(today.minusDays(1), observer))
+    }
     var specialDays by remember(context) { mutableStateOf(loadSpecialDays(context)) }
     val specialDay = remember(state, specialDays) { specialDays.firstOrNull { it.matches(state) } }
     var userEvents by remember(context) { mutableStateOf(loadUserEvents(context)) }
@@ -142,6 +146,7 @@ fun YantraApp() {
     var datePickerOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var specialDayEditorOpen by remember { mutableStateOf(false) }
+    var daysScreenOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
     val annotationScope = rememberCoroutineScope()
@@ -183,10 +188,11 @@ fun YantraApp() {
         }
     }
 
-    BackHandler(enabled = datePickerOpen || settingsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
+    BackHandler(enabled = datePickerOpen || settingsOpen || daysScreenOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
         when {
             datePickerOpen -> datePickerOpen = false
             settingsOpen -> settingsOpen = false
+            daysScreenOpen -> daysScreenOpen = false
             specialDayEditorOpen -> specialDayEditorOpen = false
             annotation != null -> annotation = null
             datePreviewActive -> {
@@ -240,9 +246,7 @@ fun YantraApp() {
                             now = ZonedDateTime.now(observerLocation.zoneId)
                         },
                         onFestivalTap = {
-                            if (observanceLabel != null) {
-                                festivalLabelVisible = true
-                            }
+                            daysScreenOpen = true
                         },
                         onAnnotation = { tapped ->
                             annotation = tapped
@@ -257,6 +261,27 @@ fun YantraApp() {
                         },
                         onAnnotationDismiss = { annotation = null },
                     )
+                    if (daysScreenOpen) {
+                        DaysScreen(
+                            context = context,
+                            engine = engine,
+                            observer = observer,
+                            now = ZonedDateTime.now(observerLocation.zoneId),
+                            todayFestival = todayFestival,
+                            specialDays = specialDays,
+                            userEvents = userEvents,
+                            onDismiss = { daysScreenOpen = false },
+                            onSelect = { occurrence ->
+                                now = occurrence.withZoneSameInstant(observerLocation.zoneId)
+                                datePreviewActive = true
+                                daysScreenOpen = false
+                            },
+                            onAddDays = {
+                                daysScreenOpen = false
+                                settingsOpen = true
+                            },
+                        )
+                    }
                     if (datePickerOpen) {
                         CryptexDatePicker(
                             selected = now,
@@ -1240,7 +1265,7 @@ private fun openRepository(context: Context) {
 private fun Int.floorMod(modulus: Int): Int = Math.floorMod(this, modulus)
 
 internal object FestivalCatalog {
-    private val definitions = listOf(
+    internal val definitions = listOf(
         FestivalDefinition("Makara Sankranti", FestivalRank.Major, solarRashi = "Makara", previousSolarRashi = "Dhanu", astronomicalDefinition = "Solar ingress into sidereal Makara."),
         FestivalDefinition("Chaitra New Year", FestivalRank.Major, month = "Chaitra", paksha = "Shukla", tithiNumber = 1, astronomicalDefinition = "Chaitra Shukla Pratipada."),
         FestivalDefinition("Rama Navami", FestivalRank.Major, month = "Chaitra", paksha = "Shukla", tithiNumber = 9, astronomicalDefinition = "Chaitra Shukla Navami."),
@@ -1267,15 +1292,19 @@ internal object FestivalCatalog {
 
     fun match(state: YantraState, previousState: YantraState): FestivalDefinition? {
         val tithiNumber = (state.tithi.index % 15) + 1
-        return definitions.firstOrNull { festival ->
-            (festival.month == null || festival.month == state.lunarMonth) &&
-                (festival.paksha == null || festival.paksha == state.paksha) &&
-                (festival.tithiNumber == null || festival.tithiNumber == tithiNumber) &&
-                (festival.solarRashi == null || festival.solarRashi == state.solarRashi.name) &&
-                (festival.previousSolarRashi == null || festival.previousSolarRashi == previousState.solarRashi.name) &&
-                (festival.nakshatra == null || festival.nakshatra == state.nakshatra.name)
-        }
+        return definitions.firstOrNull { festival -> matches(festival, state, previousState, tithiNumber) }
     }
+
+    internal fun matches(festival: FestivalDefinition, state: YantraState, previousState: YantraState): Boolean =
+        matches(festival, state, previousState, (state.tithi.index % 15) + 1)
+
+    private fun matches(festival: FestivalDefinition, state: YantraState, previousState: YantraState, tithiNumber: Int): Boolean =
+        (festival.month == null || festival.month == state.lunarMonth) &&
+            (festival.paksha == null || festival.paksha == state.paksha) &&
+            (festival.tithiNumber == null || festival.tithiNumber == tithiNumber) &&
+            (festival.solarRashi == null || festival.solarRashi == state.solarRashi.name) &&
+            (festival.previousSolarRashi == null || festival.previousSolarRashi == previousState.solarRashi.name) &&
+            (festival.nakshatra == null || festival.nakshatra == state.nakshatra.name)
 }
 
 private fun cryptexLayout(width: Float, height: Float): CryptexLayout {
@@ -1439,7 +1468,7 @@ private fun YantraInstrument(
                         onSettingsTap()
                     } else if (showBack && tap.isInRect(layout.backHitRect)) {
                         onBackTap()
-                    } else if (observanceLabel != null && hypot(tap.x - layout.lotusCenter.x, tap.y - layout.lotusCenter.y) <= layout.lotusRadius * 1.35f) {
+                    } else if (hypot(tap.x - layout.lotusCenter.x, tap.y - layout.lotusCenter.y) <= layout.lotusRadius * 1.35f) {
                         onFestivalTap()
                     } else if (tap.isInRect(layout.dateHitRect)) {
                         onDateTap()
