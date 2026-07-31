@@ -183,13 +183,6 @@ fun YantraApp() {
         }
     }
 
-    LaunchedEffect(annotation) {
-        if (annotation != null) {
-            delay(3_000)
-            annotation = null
-        }
-    }
-
     BackHandler(enabled = datePickerOpen || settingsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
         when {
             datePickerOpen -> datePickerOpen = false
@@ -262,6 +255,7 @@ fun YantraApp() {
                                 }
                             }
                         },
+                        onAnnotationDismiss = { annotation = null },
                     )
                     if (datePickerOpen) {
                         CryptexDatePicker(
@@ -1397,6 +1391,7 @@ private fun YantraInstrument(
     onBackTap: () -> Unit,
     onFestivalTap: () -> Unit,
     onAnnotation: (YantraAnnotation) -> Unit,
+    onAnnotationDismiss: () -> Unit,
 ) {
     val moonlight by animateFloatAsState(
         targetValue = (state.moonIllumination * ((state.lunarAltitude + 8.0) / 58.0)).toFloat().coerceIn(0f, 0.55f),
@@ -1415,16 +1410,21 @@ private fun YantraInstrument(
     val yearLabel = state.samvatsara.name.uppercase()
 
     Canvas(
-        modifier = modifier.pointerInput(state, now, observanceLabel) {
+        modifier = modifier.pointerInput(state, now, observanceLabel, annotation) {
             detectTapGestures(
                 onLongPress = { tap ->
                     val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
-                    if (tap.isInRect(layout.dateHitRect)) {
+                    if (annotation == null && tap.isInRect(layout.dateHitRect)) {
                         onDateLongPress()
                     }
                 },
                 onTap = { tap ->
                     val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
+                    if (annotation != null) {
+                        val card = annotationCardRect(layout.center, layout.radius, annotation.durationLabel?.lineSequence()?.count() ?: 0)
+                        if (tap.isInRect(annotationBackRect(card))) onAnnotationDismiss()
+                        return@detectTapGestures
+                    }
                     val distance = hypot(tap.x - layout.center.x, tap.y - layout.center.y)
                     val ringWidth = layout.radius * 0.135f
                     val nakshatraRingRadius = layout.radius - ringWidth * 1.5f
@@ -1756,6 +1756,21 @@ private fun angleToFraction(tap: Offset, center: Offset): Double {
 private fun angleToIndex(tap: Offset, center: Offset, count: Int): Int =
     floor(angleToFraction(tap, center) * count).toInt().coerceIn(0, count - 1)
 
+private fun annotationCardRect(center: Offset, radius: Float, detailLineCount: Int): Rect {
+    val width = radius * 1.22f
+    val height = radius * when {
+        detailLineCount > 4 -> 1.30f
+        detailLineCount > 0 -> 0.92f
+        else -> 0.72f
+    }
+    return Rect(center.x - width / 2f, center.y - height / 2f, center.x + width / 2f, center.y + height / 2f)
+}
+
+private fun annotationBackRect(card: Rect): Rect {
+    val size = card.width * 0.17f
+    return Rect(card.left, card.top, card.left + size, card.top + size)
+}
+
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
     annotation: YantraAnnotation,
     sigilImages: SigilImages,
@@ -1765,19 +1780,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
     gold: Color,
 ) {
     val detailLines = annotation.durationLabel?.lineSequence()?.toList().orEmpty()
-    val cardWidth = radius * if (detailLines.size > 2) 0.94f else 0.72f
-    val cardHeight = radius * when {
-        detailLines.size > 4 -> 0.98f
-        detailLines.isNotEmpty() -> 0.68f
-        else -> 0.52f
-    }
-    val cardCenter = center
-    val rect = Rect(
-        cardCenter.x - cardWidth / 2f,
-        cardCenter.y - cardHeight / 2f,
-        cardCenter.x + cardWidth / 2f,
-        cardCenter.y + cardHeight / 2f,
-    )
+    val rect = annotationCardRect(center, radius, detailLines.size)
+    val cardHeight = rect.height
     drawRoundRect(
         color = Color(0xFF080604).copy(alpha = 0.86f),
         topLeft = rect.topLeft,
@@ -1791,8 +1795,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
         cornerRadius = CornerRadius(cardHeight * 0.22f, cardHeight * 0.22f),
         style = Stroke(width = 0.8.dp.toPx()),
     )
-    val sigilCenter = Offset(rect.center.x, rect.top + cardHeight * if (detailLines.size > 4) 0.18f else 0.27f)
-    val sigilSize = cardHeight * if (detailLines.size > 4) 0.22f else 0.32f
+    val backRect = annotationBackRect(rect)
+    drawBackArrowhead(backRect.center, backRect.width * 0.25f, gold)
+    val sigilCenter = Offset(rect.center.x, rect.top + cardHeight * if (detailLines.size > 4) 0.17f else 0.24f)
+    val sigilSize = cardHeight * if (detailLines.size > 4) 0.19f else 0.27f
     when (annotation.kind) {
         AnnotationKind.Rashi -> drawRashiSigil(annotation.index, sigilCenter, sigilSize, gold)
         AnnotationKind.Nakshatra -> drawNakshatraSigil(annotation.index, sigilCenter, sigilSize, gold, sigilImages)
@@ -1813,8 +1819,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
             native = canvas.nativeCanvas,
             text = annotation.name.uppercase(),
             x = rect.center.x,
-            y = if (detailLines.isEmpty()) rect.bottom - cardHeight * 0.18f else rect.top + cardHeight * if (detailLines.size > 4) 0.36f else 0.58f,
-            size = cardHeight * if (detailLines.size > 4) 0.085f else 0.115f,
+            y = if (detailLines.isEmpty()) rect.top + cardHeight * 0.72f else rect.top + cardHeight * if (detailLines.size > 4) 0.31f else 0.48f,
+            size = cardHeight * if (detailLines.size > 4) 0.075f else 0.10f,
             color = Color(0xFFFFE8B0),
             bold = true,
         )
@@ -1825,8 +1831,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
                 native = canvas.nativeCanvas,
                 text = line,
                 x = rect.center.x,
-                y = rect.top + cardHeight * if (detailLines.size > 4) (0.49f + index * 0.085f) else (0.76f + index * 0.14f),
-                size = cardHeight * if (detailLines.size > 4) 0.064f else 0.09f,
+                y = rect.top + cardHeight * if (detailLines.size > 4) (0.43f + index * 0.095f) else (0.68f + index * 0.14f),
+                size = cardHeight * if (detailLines.size > 4) 0.058f else 0.075f,
                 color = Color(0xFFE8CA8B).copy(alpha = 0.9f),
                 bold = false,
             )
@@ -1850,16 +1856,16 @@ private fun YantraAnnotation.withDuration(
             val day = now.toLocalDate().atStartOfDay(now.zone)
             val interval = day.plusSeconds((sector.startFraction * 86_400).toLong()) to
                 day.plusSeconds(((sector.startFraction + sector.durationFraction) * 86_400).toLong())
-            details += "LAGNA FROM ${interval.first.format(timeFormatter)}"
-            details += "LAGNA TO ${interval.second.format(timeFormatter)}"
+            details += "LAGNA · TODAY"
+            details += "From ${interval.first.format(timeFormatter)}   To ${interval.second.format(timeFormatter)}"
         }
         engine.rashiInterval(now, observer, index, solar = true)?.let { interval ->
-            details += "SURYA FROM ${interval.first.format(dateFormatter)}"
-            details += "SURYA TO ${interval.second.format(dateFormatter)}"
+            details += "SURYA"
+            details += "From ${interval.first.format(dateFormatter)}   To ${interval.second.format(dateFormatter)}"
         }
         engine.rashiInterval(now, observer, index, solar = false)?.let { interval ->
-            details += "CHANDRA FROM ${interval.first.format(dateTimeFormatter)}"
-            details += "CHANDRA TO ${interval.second.format(dateTimeFormatter)}"
+            details += "CHANDRA"
+            details += "From ${interval.first.format(dateTimeFormatter)}   To ${interval.second.format(dateTimeFormatter)}"
         }
         return if (details.isEmpty()) this else copy(durationLabel = details.joinToString("\n"))
     }

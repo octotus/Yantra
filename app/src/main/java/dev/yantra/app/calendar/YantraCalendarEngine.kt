@@ -22,12 +22,12 @@ class YantraCalendarEngine(
         val entryDelta = if (currentIndex == targetIndex) -progress else normalizeDegrees(targetStart - longitude)
         val exitDelta = if (currentIndex == targetIndex) segmentWidth - progress else normalizeDegrees(targetStart - longitude) + segmentWidth
         val degreesPerDay = 13.176396
-        val entryEstimate = dateTime.plusSeconds((entryDelta / degreesPerDay * 86_400.0).toLong())
-        val exitEstimate = dateTime.plusSeconds((exitDelta / degreesPerDay * 86_400.0).toLong())
+        val entryEstimate = estimateLongitudeCrossing(dateTime, observer, targetStart, false, entryDelta, degreesPerDay)
+        val exitEstimate = estimateLongitudeCrossing(dateTime, observer, normalizeDegrees(targetStart + segmentWidth), false, exitDelta, degreesPerDay)
         val indexAt: (ZonedDateTime) -> Int = { candidate ->
             floor(siderealLongitudeAt(candidate, observer, solar = false) / segmentWidth).toInt().coerceIn(0, 26)
         }
-        val halfWindow = Duration.ofHours(12)
+        val halfWindow = Duration.ofHours(6)
         val entry = refineEstimatedBoundary(entryEstimate, halfWindow, targetIndex, entering = true, indexAt) ?: return null
         val exit = refineEstimatedBoundary(exitEstimate, halfWindow, targetIndex, entering = false, indexAt) ?: return null
         return entry to exit
@@ -49,12 +49,29 @@ class YantraCalendarEngine(
         val progress = normalizeDegrees(longitude - targetStart)
         val entryDelta = if (currentIndex == targetIndex) -progress else normalizeDegrees(targetStart - longitude)
         val exitDelta = if (currentIndex == targetIndex) 30.0 - progress else normalizeDegrees(targetStart - longitude) + 30.0
-        val entryEstimate = dateTime.plusSeconds((entryDelta / degreesPerDay * 86_400.0).toLong())
-        val exitEstimate = dateTime.plusSeconds((exitDelta / degreesPerDay * 86_400.0).toLong())
-        val halfWindow = if (solar) Duration.ofDays(4) else Duration.ofHours(18)
+        val entryEstimate = estimateLongitudeCrossing(dateTime, observer, targetStart, solar, entryDelta, degreesPerDay)
+        val exitEstimate = estimateLongitudeCrossing(dateTime, observer, normalizeDegrees(targetStart + 30.0), solar, exitDelta, degreesPerDay)
+        val halfWindow = if (solar) Duration.ofDays(2) else Duration.ofHours(12)
         val entry = refineEstimatedBoundary(entryEstimate, halfWindow, targetIndex, entering = true, indexAt) ?: return null
         val exit = refineEstimatedBoundary(exitEstimate, halfWindow, targetIndex, entering = false, indexAt) ?: return null
         return entry to exit
+    }
+
+    private fun estimateLongitudeCrossing(
+        dateTime: ZonedDateTime,
+        observer: Observer,
+        targetLongitude: Double,
+        solar: Boolean,
+        initialDelta: Double,
+        degreesPerDay: Double,
+    ): ZonedDateTime {
+        var estimate = dateTime.plusSeconds((initialDelta / degreesPerDay * 86_400.0).toLong())
+        repeat(4) {
+            val longitude = siderealLongitudeAt(estimate, observer, solar)
+            val signedError = ((targetLongitude - longitude + 540.0) % 360.0) - 180.0
+            estimate = estimate.plusSeconds((signedError / degreesPerDay * 86_400.0).toLong())
+        }
+        return estimate
     }
 
     private fun refineEstimatedBoundary(
