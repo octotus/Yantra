@@ -1021,7 +1021,7 @@ internal data class UserEvent(
     fun toDraft(): UserEventDraft = UserEventDraft(name, month, paksha, tithiIndex, nakshatra, rashi)
 }
 
-private data class UserEventDraft(
+internal data class UserEventDraft(
     val name: String = "",
     val month: String? = null,
     val paksha: String? = null,
