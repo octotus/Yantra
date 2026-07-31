@@ -1827,17 +1827,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
     when (annotation.kind) {
         AnnotationKind.Rashi -> drawRashiSigil(annotation.index, sigilCenter, sigilSize, gold)
         AnnotationKind.Nakshatra -> drawNakshatraSigil(annotation.index, sigilCenter, sigilSize, gold, sigilImages)
-        AnnotationKind.Tithi -> drawIntoCanvas { canvas ->
-            drawEmbossedText(
-                native = canvas.nativeCanvas,
-                text = ((annotation.index % 15) + 1).toString(),
-                x = sigilCenter.x,
-                y = sigilCenter.y + sigilSize * 0.13f,
-                size = sigilSize * 0.42f,
-                color = gold,
-                bold = true,
-            )
-        }
+        AnnotationKind.Tithi -> Unit
         AnnotationKind.Masa -> drawIntoCanvas { canvas ->
             drawEmbossedText(
                 native = canvas.nativeCanvas,
@@ -1855,7 +1845,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
             native = canvas.nativeCanvas,
             text = annotation.name.uppercase(),
             x = rect.center.x,
-            y = if (detailLines.isEmpty()) rect.top + cardHeight * 0.72f else rect.top + cardHeight * if (denseRashi) 0.23f else if (detailLines.size > 4) 0.31f else 0.48f,
+            y = if (annotation.kind == AnnotationKind.Tithi) rect.top + cardHeight * 0.30f else if (detailLines.isEmpty()) rect.top + cardHeight * 0.72f else rect.top + cardHeight * if (denseRashi) 0.23f else if (detailLines.size > 4) 0.31f else 0.48f,
             size = cardHeight * if (denseRashi) 0.062f else if (detailLines.size > 4) 0.075f else 0.10f,
             color = Color(0xFFFFE8B0),
             bold = true,
@@ -1867,7 +1857,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationCard(
                 native = canvas.nativeCanvas,
                 text = line,
                 x = rect.center.x,
-                y = rect.top + cardHeight * if (denseRashi) (0.34f + index * 0.068f) else if (detailLines.size > 4) (0.43f + index * 0.095f) else (0.68f + index * 0.14f),
+                y = rect.top + cardHeight * if (annotation.kind == AnnotationKind.Tithi) (0.55f + index * 0.17f) else if (denseRashi) (0.34f + index * 0.068f) else if (detailLines.size > 4) (0.43f + index * 0.095f) else (0.68f + index * 0.14f),
                 size = cardHeight * if (denseRashi) 0.048f else if (detailLines.size > 4) 0.058f else 0.075f,
                 color = if (denseRashi && index % 3 == 0) Color(0xFFFFE8B0) else Color(0xFFE8CA8B).copy(alpha = 0.9f),
                 bold = denseRashi && index % 3 == 0,
