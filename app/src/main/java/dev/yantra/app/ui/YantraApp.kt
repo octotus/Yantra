@@ -1299,13 +1299,22 @@ internal object FestivalCatalog {
     internal fun matches(festival: FestivalDefinition, state: YantraState, previousState: YantraState): Boolean =
         matches(festival, state, previousState, (state.tithi.index % 15) + 1)
 
-    private fun matches(festival: FestivalDefinition, state: YantraState, previousState: YantraState, tithiNumber: Int): Boolean =
-        (festival.month == null || festival.month == state.lunarMonth) &&
+    private fun matches(festival: FestivalDefinition, state: YantraState, previousState: YantraState, tithiNumber: Int): Boolean {
+        val expectedMonth = festivalMonth(festival, state.monthReckoning)
+        return (expectedMonth == null || expectedMonth == state.lunarMonth) &&
             (festival.paksha == null || festival.paksha == state.paksha) &&
             (festival.tithiNumber == null || festival.tithiNumber == tithiNumber) &&
             (festival.solarRashi == null || festival.solarRashi == state.solarRashi.name) &&
             (festival.previousSolarRashi == null || festival.previousSolarRashi == previousState.solarRashi.name) &&
             (festival.nakshatra == null || festival.nakshatra == state.nakshatra.name)
+    }
+
+    internal fun festivalMonth(festival: FestivalDefinition, reckoning: MonthReckoning): String? {
+        val month = festival.month ?: return null
+        if (reckoning != MonthReckoning.Amanta || festival.paksha != "Krishna") return month
+        val index = CalendarCatalog.lunarMonths.indexOfFirst { it.name == month }
+        return if (index < 0) month else CalendarCatalog.lunarMonths[Math.floorMod(index - 1, 12)].name
+    }
 }
 
 private fun cryptexLayout(width: Float, height: Float): CryptexLayout {

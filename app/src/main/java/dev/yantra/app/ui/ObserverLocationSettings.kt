@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,6 +27,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.yantra.app.engine.Observer
@@ -100,24 +107,101 @@ internal fun ObserverLocationPanel(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    val keyboardController = LocalSoftwareKeyboardController.current
     var privacyOpen by remember { mutableStateOf(false) }
-    var manualOpen by remember(current.usesDeviceLocation) { mutableStateOf(!current.usesDeviceLocation) }
+    var manualOpen by remember { mutableStateOf(!current.usesDeviceLocation) }
     var city by remember { mutableStateOf("") }
     var state by remember { mutableStateOf("") }
     var country by remember { mutableStateOf("") }
     var timeZone by remember(current.timeZoneId) { mutableStateOf(current.timeZoneId) }
     var message by remember { mutableStateOf<String?>(null) }
+    var cityError by remember { mutableStateOf<String?>(null) }
+    var countryError by remember { mutableStateOf<String?>(null) }
+    var timeZoneError by remember { mutableStateOf<String?>(null) }
+    var placeError by remember { mutableStateOf<String?>(null) }
+    val ivory = Color(0xFFFFE8B0)
+    val brightGold = Color(0xFFFFE2A3)
+    val copper = Color(0xFF8E5424)
+    val deepCopper = Color(0xFF211007)
+    val ink = Color(0xFF050302)
+    val errorColor = Color(0xFFFFB4A9)
     val copperButtonColors = ButtonDefaults.buttonColors(
-        containerColor = Color(0xFF8E5424),
-        contentColor = Color(0xFFFFE8B0),
+        containerColor = copper,
+        contentColor = ivory,
     )
-    val bronzeTextButtonColors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE8CA8B))
+    val inactiveButtonColors = ButtonDefaults.buttonColors(
+        containerColor = deepCopper,
+        contentColor = brightGold,
+    )
+    val confirmButtonColors = ButtonDefaults.buttonColors(
+        containerColor = brightGold,
+        contentColor = ink,
+    )
+    val bronzeTextButtonColors = ButtonDefaults.textButtonColors(contentColor = brightGold)
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = ivory,
+        unfocusedTextColor = ivory,
+        focusedLabelColor = brightGold,
+        unfocusedLabelColor = ivory.copy(alpha = 0.88f),
+        cursorColor = brightGold,
+        focusedBorderColor = brightGold,
+        unfocusedBorderColor = ivory.copy(alpha = 0.7f),
+        focusedContainerColor = ink.copy(alpha = 0.78f),
+        unfocusedContainerColor = deepCopper.copy(alpha = 0.72f),
+        errorTextColor = errorColor,
+        errorLabelColor = errorColor,
+        errorBorderColor = errorColor,
+        errorCursorColor = errorColor,
+        errorSupportingTextColor = errorColor,
+    )
+
+    fun openManualEntry() {
+        manualOpen = true
+        privacyOpen = false
+        timeZone = ""
+        message = null
+        cityError = null
+        countryError = null
+        timeZoneError = null
+        placeError = null
+    }
+
+    fun submitManualLocation() {
+        cityError = if (city.isBlank()) "Enter a city." else null
+        countryError = if (country.isBlank()) "Enter a country." else null
+        val validZone = runCatching { ZoneId.of(timeZone.trim()) }.getOrNull()
+        timeZoneError = when {
+            timeZone.isBlank() -> "Enter an IANA time zone, such as America/Toronto."
+            validZone == null -> "This time zone is not valid. Use a name such as America/Toronto."
+            else -> null
+        }
+        placeError = null
+        if (cityError != null || countryError != null || timeZoneError != null || validZone == null) {
+            message = "Please correct the highlighted fields."
+            return
+        }
+        scope.launch {
+            val query = listOf(city, state, country).map { it.trim() }.filter { it.isNotBlank() }.joinToString(", ")
+            val coordinates = geocodePlace(context, query)
+            if (coordinates == null) {
+                placeError = "Location not found. Check the city, state or province, country, and network connection."
+                message = null
+            } else {
+                val next = ObserverLocation(coordinates.first, coordinates.second, validZone.id, query, false)
+                saveObserverLocation(context, next)
+                onChanged(next)
+                message = "Using $query"
+                manualOpen = false
+                keyboardController?.hide()
+            }
+        }
+    }
 
     fun applyDeviceLocation() {
         val location = lastKnownLocation(context)
         if (location == null) {
+            openManualEntry()
             message = "Location is not available yet. Turn on device location or choose a city."
-            manualOpen = true
             return
         }
         scope.launch {
@@ -130,13 +214,14 @@ internal fun ObserverLocationPanel(
             )
             saveObserverLocation(context, next)
             onChanged(next)
+            manualOpen = false
             message = "Using ${next.label}"
         }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) applyDeviceLocation() else {
-            manualOpen = true
+            openManualEntry()
             message = "Permission denied. Choose a city and time zone instead."
         }
     }
@@ -144,10 +229,16 @@ internal fun ObserverLocationPanel(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Observer location", color = accentColor)
         Text("${current.label} · ${current.timeZoneId}", color = textColor)
-        Text("Location is used only for local astronomical timing. Yantra never tracks movement or runs background location.", color = textColor.copy(alpha = 0.72f))
+        Text("Location is used only for local astronomical timing. Yantra never tracks movement or runs background location.", color = textColor.copy(alpha = 0.88f))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { privacyOpen = true }, colors = copperButtonColors) { Text("Use device location") }
-            TextButton(onClick = { manualOpen = !manualOpen }, colors = bronzeTextButtonColors) { Text("Choose a city") }
+            Button(
+                onClick = { privacyOpen = true },
+                colors = if (current.usesDeviceLocation && !manualOpen) copperButtonColors else inactiveButtonColors,
+            ) { Text("Use device location") }
+            Button(
+                onClick = ::openManualEntry,
+                colors = if (!current.usesDeviceLocation || manualOpen) copperButtonColors else inactiveButtonColors,
+            ) { Text("Choose a city") }
         }
         if (privacyOpen) {
             androidx.compose.material3.AlertDialog(
@@ -160,33 +251,59 @@ internal fun ObserverLocationPanel(
                         permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
                     }, colors = bronzeTextButtonColors) { Text("Allow location") }
                 },
-                dismissButton = { TextButton(onClick = { privacyOpen = false; manualOpen = true }, colors = bronzeTextButtonColors) { Text("Choose a city") } },
+                dismissButton = { TextButton(onClick = ::openManualEntry, colors = bronzeTextButtonColors) { Text("Choose a city") } },
             )
         }
         if (manualOpen) {
-            Text("The place name is sent once to the device geocoding provider. The resulting coordinates are cached on this phone.", color = textColor.copy(alpha = 0.72f))
-            OutlinedTextField(city, { city = it }, label = { Text("City") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(state, { state = it }, label = { Text("State / Province") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(country, { country = it }, label = { Text("Country") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(timeZone, { timeZone = it }, label = { Text("Time zone (for example Asia/Kolkata)") }, modifier = Modifier.fillMaxWidth())
-            Button(onClick = {
-                val validZone = runCatching { ZoneId.of(timeZone.trim()) }.getOrNull()
-                if (city.isBlank() || country.isBlank() || validZone == null) {
-                    message = "Enter a city, country, and valid IANA time zone."
-                } else scope.launch {
-                    val query = listOf(city, state, country).filter { it.isNotBlank() }.joinToString(", ")
-                    val coordinates = geocodePlace(context, query)
-                    if (coordinates == null) message = "Location not found. Check the place name and network connection."
-                    else {
-                        val next = ObserverLocation(coordinates.first, coordinates.second, validZone.id, query, false)
-                        saveObserverLocation(context, next)
-                        onChanged(next)
-                        message = "Using $query"
-                        manualOpen = false
-                    }
-                }
-            }, colors = copperButtonColors) { Text("Use this location") }
+            Text("The place name is sent once to the device geocoding provider. The resulting coordinates are cached on this phone.", color = textColor.copy(alpha = 0.88f))
+            OutlinedTextField(
+                value = city,
+                onValueChange = { city = it; cityError = null; placeError = null },
+                label = { Text("City") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = cityError != null,
+                supportingText = cityError?.let { error -> { Text(error) } },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+                colors = fieldColors,
+            )
+            OutlinedTextField(
+                value = state,
+                onValueChange = { state = it; placeError = null },
+                label = { Text("State / Province (optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+                colors = fieldColors,
+            )
+            OutlinedTextField(
+                value = country,
+                onValueChange = { country = it; countryError = null; placeError = null },
+                label = { Text("Country") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = countryError != null,
+                supportingText = countryError?.let { error -> { Text(error) } },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+                colors = fieldColors,
+            )
+            OutlinedTextField(
+                value = timeZone,
+                onValueChange = { timeZone = it; timeZoneError = null },
+                label = { Text("Time zone (for example America/Toronto)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = timeZoneError != null,
+                supportingText = timeZoneError?.let { error -> { Text(error) } },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submitManualLocation() }),
+                colors = fieldColors,
+            )
+            placeError?.let { Text(it, color = errorColor) }
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
+                Button(onClick = ::submitManualLocation, colors = confirmButtonColors) { Text("Use this location") }
+            }
         }
-        message?.let { Text(it, color = accentColor) }
+        message?.let { Text(it, color = if (it.startsWith("Using ")) brightGold else errorColor) }
     }
 }

@@ -62,6 +62,7 @@ data class YantraState(
     val paksha: String,
     val lunarMonth: String,
     val yoga: Segment,
+    val monthReckoning: MonthReckoning,
 )
 
 data class ObservanceState(
@@ -71,6 +72,7 @@ data class ObservanceState(
     val lunarRashiName: String,
     val lunarMonth: String,
     val paksha: String,
+    val monthReckoning: MonthReckoning,
 )
 
 object CalendarCatalog {

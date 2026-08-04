@@ -41,6 +41,7 @@ import java.time.format.DateTimeFormatter
 
 private const val DAY_SECTION_PREFS = "yantra_day_sections"
 private const val DAY_CACHE_PREFS = "yantra_day_cache"
+private const val DAY_CACHE_VERSION = "2"
 
 private enum class DaySection(val label: String) {
     Festivals("Festivals"),
@@ -254,7 +255,8 @@ private fun buildDayItems(
     }
     fun festivalMatches(festival: FestivalDefinition, state: ObservanceState, previous: ObservanceState): Boolean {
         val tithiNumber = (state.tithiIndex % 15) + 1
-        return (festival.month == null || festival.month == state.lunarMonth) &&
+        val festivalMonth = FestivalCatalog.festivalMonth(festival, state.monthReckoning)
+        return (festivalMonth == null || festivalMonth == state.lunarMonth) &&
             (festival.paksha == null || festival.paksha == state.paksha) &&
             (festival.tithiNumber == null || festival.tithiNumber == tithiNumber) &&
             (festival.solarRashi == null || festival.solarRashi == state.solarRashiName) &&
@@ -307,7 +309,10 @@ private fun buildDayItems(
             result += DayBrowserItem("user:${event.identityKey()}", event.name, DaySection.User, listOf(it))
         }
     }
-    return result.sortedBy { it.name }
+    return result.sortedWith(
+        compareBy<DayBrowserItem> { item -> item.occurrences.firstOrNull()?.at }
+            .thenBy { item -> item.name },
+    )
 }
 
 private fun loadDaySections(context: Context): Map<String, DaySection> =
@@ -328,6 +333,7 @@ private fun dayCacheKey(
     specialDays: List<SpecialDay>,
     userEvents: List<UserEvent>,
 ): String = listOf(
+    DAY_CACHE_VERSION,
     "%.4f".format(observer.latitude),
     "%.4f".format(observer.longitude),
     now.zone.id,

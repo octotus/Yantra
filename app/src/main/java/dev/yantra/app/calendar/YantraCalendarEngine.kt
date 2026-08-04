@@ -32,6 +32,7 @@ class YantraCalendarEngine(
             lunarRashiName = CalendarCatalog.rashis[floor(siderealMoon / 30.0).toInt().coerceIn(0, 11)].name,
             lunarMonth = CalendarCatalog.lunarMonths[monthIndex].name,
             paksha = paksha,
+            monthReckoning = monthReckoning,
         )
     }
 
@@ -238,6 +239,7 @@ class YantraCalendarEngine(
             paksha = paksha,
             lunarMonth = activeMonth.name,
             yoga = CalendarCatalog.yogas[yogaIndex],
+            monthReckoning = monthReckoning,
         )
     }
 
