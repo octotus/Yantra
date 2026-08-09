@@ -9,12 +9,13 @@ Java_dev_yantra_app_engine_SwissEphemeris_nativeLongitudes(
         jdouble julian_day_ut,
         jdouble latitude,
         jdouble longitude,
-        jstring ephe_path) {
+        jstring ephe_path,
+        jint ayanamsa_mode) {
     (void) thiz;
 
     const char *path = (*env)->GetStringUTFChars(env, ephe_path, 0);
     swe_set_ephe_path((char *) path);
-    swe_set_sid_mode(SE_SIDM_LAHIRI, 0, 0);
+    swe_set_sid_mode((int32) ayanamsa_mode, 0, 0);
 
     double sun[6] = {0};
     double moon[6] = {0};

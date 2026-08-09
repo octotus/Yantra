@@ -40,6 +40,23 @@ enum class MonthReckoning(val id: String, val displayName: String) {
     Purnimanta("purnimanta", "Purnimanta"),
 }
 
+enum class Ayanamsa(
+    val id: String,
+    val displayName: String,
+    internal val swissMode: Int,
+    private val offsetFromLahiri: Double,
+) {
+    Lahiri("lahiri", "Lahiri (Chitrapaksha)", 1, 0.0),
+    Raman("raman", "B. V. Raman", 3, -1.446),
+    Krishnamurti("krishnamurti", "Krishnamurti (KP)", 5, -0.096),
+    ;
+
+    internal fun approximateDegrees(julianDay: Double): Double {
+        val yearsSinceJ2000 = (julianDay - 2451545.0) / 365.2425
+        return 23.853055 + (50.290966 / 3600.0) * yearsSinceJ2000 + offsetFromLahiri
+    }
+}
+
 data class YantraState(
     val julianDay: Double,
     val solarLongitude: Double,

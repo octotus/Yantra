@@ -12,12 +12,13 @@ class YantraCalendarEngine(
     private val astronomyEngine: AstronomyEngine = AstronomyEngine(),
     private val calendarLocaleRule: CalendarLocaleRule = CalendarCatalog.calendarLocaleRules.first(),
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
+    private val ayanamsa: Ayanamsa = Ayanamsa.Lahiri,
 ) {
     fun observanceState(dateTime: ZonedDateTime, observer: Observer): ObservanceState {
         val celestial = astronomyEngine.compute(dateTime, observer)
-        val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
-        val siderealSun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsa)
-        val siderealMoon = if (celestial.longitudesAreSidereal) celestial.lunarLongitude else normalizeDegrees(celestial.lunarLongitude - ayanamsa)
+        val ayanamsaDegrees = ayanamsa.approximateDegrees(celestial.julianDay)
+        val siderealSun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsaDegrees)
+        val siderealMoon = if (celestial.longitudesAreSidereal) celestial.lunarLongitude else normalizeDegrees(celestial.lunarLongitude - ayanamsaDegrees)
         val elongation = normalizeDegrees(celestial.lunarLongitude - celestial.solarLongitude)
         val tithiIndex = floor(elongation / 12.0).toInt().coerceIn(0, 29)
         val paksha = if (tithiIndex < 15) "Shukla" else "Krishna"
@@ -164,7 +165,7 @@ class YantraCalendarEngine(
         return if (celestial.longitudesAreSidereal) {
             longitude
         } else {
-            normalizeDegrees(longitude - lahiriAyanamsaApprox(celestial.julianDay))
+            normalizeDegrees(longitude - ayanamsa.approximateDegrees(celestial.julianDay))
         }
     }
 
@@ -184,16 +185,16 @@ class YantraCalendarEngine(
 
     fun compute(dateTime: ZonedDateTime, observer: Observer): YantraState {
         val celestial = astronomyEngine.compute(dateTime, observer)
-        val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
+        val ayanamsaDegrees = ayanamsa.approximateDegrees(celestial.julianDay)
         val siderealSun = if (celestial.longitudesAreSidereal) {
             celestial.solarLongitude
         } else {
-            normalizeDegrees(celestial.solarLongitude - ayanamsa)
+            normalizeDegrees(celestial.solarLongitude - ayanamsaDegrees)
         }
         val siderealMoon = if (celestial.longitudesAreSidereal) {
             celestial.lunarLongitude
         } else {
-            normalizeDegrees(celestial.lunarLongitude - ayanamsa)
+            normalizeDegrees(celestial.lunarLongitude - ayanamsaDegrees)
         }
         val lunarSolarArc = normalizeDegrees(siderealMoon - siderealSun)
         val tithiIndex = floor(lunarSolarArc / 12.0).toInt().coerceIn(0, 29)
@@ -212,7 +213,7 @@ class YantraCalendarEngine(
         }
         val activeMonth = monthSectors[activeMonthIndex]
         val siderealAscendant = celestial.ascendantLongitude?.let { ascendant ->
-            if (celestial.longitudesAreSidereal) ascendant else normalizeDegrees(ascendant - ayanamsa)
+            if (celestial.longitudesAreSidereal) ascendant else normalizeDegrees(ascendant - ayanamsaDegrees)
         }
         val lagnaResolution = resolveDailyLagnaSectors(dateTime, observer)
         val lagnaRashiIndex = siderealAscendant?.let { floor(it / 30.0).toInt().coerceIn(0, 11) }
@@ -256,7 +257,7 @@ class YantraCalendarEngine(
         for (minute in 0..1440 step 5) {
             val sampleTime = midnight.plusMinutes(minute.toLong())
             val sample = astronomyEngine.compute(sampleTime, observer)
-            val sampleAyanamsa = lahiriAyanamsaApprox(sample.julianDay)
+            val sampleAyanamsa = ayanamsa.approximateDegrees(sample.julianDay)
             val ascendant = sample.ascendantLongitude?.let {
                 if (sample.longitudesAreSidereal) it else normalizeDegrees(it - sampleAyanamsa)
             }
@@ -500,9 +501,9 @@ class YantraCalendarEngine(
     ): SiderealLongitudes {
         val dateTime = dateTimeAtJulianDay(referenceDateTime, referenceJulianDay, julianDay)
         val celestial = astronomyEngine.compute(dateTime, observer)
-        val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
-        val sun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsa)
-        val moon = if (celestial.longitudesAreSidereal) celestial.lunarLongitude else normalizeDegrees(celestial.lunarLongitude - ayanamsa)
+        val ayanamsaDegrees = ayanamsa.approximateDegrees(celestial.julianDay)
+        val sun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsaDegrees)
+        val moon = if (celestial.longitudesAreSidereal) celestial.lunarLongitude else normalizeDegrees(celestial.lunarLongitude - ayanamsaDegrees)
         return SiderealLongitudes(sun, moon)
     }
 
@@ -520,8 +521,8 @@ class YantraCalendarEngine(
 
     private fun fallbackMonthResolution(dateTime: ZonedDateTime, observer: Observer): MonthResolution {
         val celestial = astronomyEngine.compute(dateTime, observer)
-        val ayanamsa = lahiriAyanamsaApprox(celestial.julianDay)
-        val siderealSun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsa)
+        val ayanamsaDegrees = ayanamsa.approximateDegrees(celestial.julianDay)
+        val siderealSun = if (celestial.longitudesAreSidereal) celestial.solarLongitude else normalizeDegrees(celestial.solarLongitude - ayanamsaDegrees)
         val monthIndex = floor(siderealSun / 30.0).toInt().coerceIn(0, 11)
         val totalDays = CalendarCatalog.lunarMonths.sumOf { it.durationDays }
         val sectors = CalendarCatalog.lunarMonths.map { month ->
@@ -530,11 +531,6 @@ class YantraCalendarEngine(
         val newYearMonthIndex = calendarLocaleRule.newYearMonthIndex.coerceIn(0, 11)
         val lunisolarYearStartYear = if (monthIndex < newYearMonthIndex) dateTime.year - 1 else dateTime.year
         return MonthResolution(sectors, monthIndex, lunisolarYearStartYear)
-    }
-
-    private fun lahiriAyanamsaApprox(julianDay: Double): Double {
-        val yearsSinceJ2000 = (julianDay - 2451545.0) / 365.2425
-        return 23.853055 + (50.290966 / 3600.0) * yearsSinceJ2000
     }
 
     private data class MonthResolution(

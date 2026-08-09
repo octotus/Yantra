@@ -1,11 +1,14 @@
 package dev.yantra.app.engine
 
+import dev.yantra.app.calendar.Ayanamsa
+
 class SwissEphemeris(
     private val ephemerisPath: String,
+    private val ayanamsa: Ayanamsa = Ayanamsa.Lahiri,
 ) : LongitudeProvider {
     override fun longitudes(julianDayUt: Double, observer: Observer): EclipticLongitudes? {
         if (!NativeBridge.available) return null
-        val values = nativeLongitudes(julianDayUt, observer.latitude, observer.longitude, ephemerisPath)
+        val values = nativeLongitudes(julianDayUt, observer.latitude, observer.longitude, ephemerisPath, ayanamsa.swissMode)
         val sun = values.getOrNull(0) ?: return null
         val moon = values.getOrNull(1) ?: return null
         val ascendant = values.getOrNull(4)
@@ -23,6 +26,7 @@ class SwissEphemeris(
         latitude: Double,
         longitude: Double,
         ephemerisPath: String,
+        ayanamsaMode: Int,
     ): DoubleArray
 
     private object NativeBridge {

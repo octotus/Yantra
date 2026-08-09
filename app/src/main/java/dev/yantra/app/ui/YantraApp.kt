@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.yantra.app.R
 import dev.yantra.app.calendar.CalendarCatalog
+import dev.yantra.app.calendar.Ayanamsa
 import dev.yantra.app.calendar.LagnaSector
 import dev.yantra.app.calendar.MonthSector
 import dev.yantra.app.calendar.MonthNameSet
@@ -111,17 +112,20 @@ fun YantraApp() {
     var monthNameSetId by remember(context) { mutableStateOf(loadMonthNameSetId(context)) }
     var calendarLocaleRuleId by remember(context) { mutableStateOf(loadCalendarLocaleRuleId(context)) }
     var monthReckoningId by remember(context) { mutableStateOf(loadMonthReckoningId(context)) }
+    var ayanamsaId by remember(context) { mutableStateOf(loadAyanamsaId(context)) }
     val monthNameSet = remember(monthNameSetId) { selectedMonthNameSet(monthNameSetId) }
     val calendarLocaleRule = remember(calendarLocaleRuleId) { selectedCalendarLocaleRule(calendarLocaleRuleId) }
     val monthReckoning = remember(monthReckoningId) { selectedMonthReckoning(monthReckoningId) }
-    val engine = remember(context, calendarLocaleRuleId, monthReckoningId) {
+    val ayanamsa = remember(ayanamsaId) { selectedAyanamsa(ayanamsaId) }
+    val engine = remember(context, calendarLocaleRuleId, monthReckoningId, ayanamsaId) {
         val ephemerisDirectory = EphemerisAssets(context).install()
         YantraCalendarEngine(
             AstronomyEngine(
-                longitudeProvider = SwissEphemeris(ephemerisDirectory.absolutePath)
+                longitudeProvider = SwissEphemeris(ephemerisDirectory.absolutePath, ayanamsa)
             ),
             calendarLocaleRule = calendarLocaleRule,
             monthReckoning = monthReckoning,
+            ayanamsa = ayanamsa,
         )
     }
     var observerLocation by remember(context) { mutableStateOf(loadObserverLocation(context)) }
@@ -268,7 +272,7 @@ fun YantraApp() {
                             observer = observer,
                             now = ZonedDateTime.now(observerLocation.zoneId),
                             todayFestival = todayFestival,
-                            calendarConfigKey = "$calendarLocaleRuleId|$monthReckoningId",
+                            calendarConfigKey = "$calendarLocaleRuleId|$monthReckoningId|$ayanamsaId",
                             specialDays = specialDays,
                             userEvents = userEvents,
                             onDismiss = { daysScreenOpen = false },
@@ -303,6 +307,7 @@ fun YantraApp() {
                             monthNameSetId = monthNameSetId,
                             calendarLocaleRuleId = calendarLocaleRuleId,
                             monthReckoningId = monthReckoningId,
+                            ayanamsaId = ayanamsaId,
                             observerLocation = observerLocation,
                             notificationsEnabled = notificationEnabled,
                             onDismiss = { settingsOpen = false },
@@ -334,6 +339,11 @@ fun YantraApp() {
                             onMonthReckoningChanged = { id ->
                                 saveMonthReckoningId(context, id)
                                 monthReckoningId = id
+                            },
+                            onAyanamsaChanged = { id ->
+                                saveAyanamsaId(context, id)
+                                ayanamsaId = id
+                                ObservanceNotificationScheduler.reschedule(context)
                             },
                             onObserverLocationChanged = { next ->
                                 observerLocation = next
@@ -599,6 +609,7 @@ private fun YantraSettingsScreen(
     monthNameSetId: String,
     calendarLocaleRuleId: String,
     monthReckoningId: String,
+    ayanamsaId: String,
     observerLocation: ObserverLocation,
     notificationsEnabled: Boolean,
     onDismiss: () -> Unit,
@@ -609,6 +620,7 @@ private fun YantraSettingsScreen(
     onMonthNameSetChanged: (String) -> Unit,
     onCalendarLocaleRuleChanged: (String) -> Unit,
     onMonthReckoningChanged: (String) -> Unit,
+    onAyanamsaChanged: (String) -> Unit,
     onObserverLocationChanged: (ObserverLocation) -> Unit,
     onNotificationsChanged: (Boolean) -> Unit,
 ) {
@@ -719,6 +731,12 @@ private fun YantraSettingsScreen(
                 selectedId = monthReckoningId,
                 options = MonthReckoning.values().map { it.id to it.displayName },
                 onValue = onMonthReckoningChanged,
+            )
+            CycleIdCriterion(
+                label = "Ayanamsha",
+                selectedId = ayanamsaId,
+                options = Ayanamsa.entries.map { it.id to it.displayName },
+                onValue = onAyanamsaChanged,
             )
 
             Button(
@@ -1087,6 +1105,7 @@ private const val USER_LOGO_FILE = "user_logo"
 private const val MONTH_NAME_SET_KEY = "month_name_set"
 private const val CALENDAR_LOCALE_RULE_KEY = "calendar_locale_rule"
 private const val MONTH_RECKONING_KEY = "month_reckoning"
+private const val AYANAMSA_KEY = "ayanamsa"
 
 private fun selectedMonthNameSet(id: String): MonthNameSet =
     CalendarCatalog.monthNameSets.firstOrNull { it.id == id } ?: CalendarCatalog.monthNameSets.first()
@@ -1096,6 +1115,9 @@ private fun selectedCalendarLocaleRule(id: String) =
 
 private fun selectedMonthReckoning(id: String): MonthReckoning =
     MonthReckoning.values().firstOrNull { it.id == id } ?: MonthReckoning.Amanta
+
+internal fun selectedAyanamsa(id: String): Ayanamsa =
+    Ayanamsa.entries.firstOrNull { it.id == id } ?: Ayanamsa.Lahiri
 
 private fun loadMonthNameSetId(context: Context): String =
     context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
@@ -1130,6 +1152,18 @@ private fun saveMonthReckoningId(context: Context, id: String) {
     context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(MONTH_RECKONING_KEY, id)
+        .apply()
+}
+
+internal fun loadAyanamsaId(context: Context): String =
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .getString(AYANAMSA_KEY, Ayanamsa.Lahiri.id)
+        ?: Ayanamsa.Lahiri.id
+
+private fun saveAyanamsaId(context: Context, id: String) {
+    context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(AYANAMSA_KEY, id)
         .apply()
 }
 

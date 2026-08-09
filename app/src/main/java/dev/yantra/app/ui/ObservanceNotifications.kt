@@ -83,7 +83,11 @@ private data class ObservanceOccurrence(val label: String, val key: String, val 
 
 private fun engine(context: Context): YantraCalendarEngine {
     val ephemeris = EphemerisAssets(context).install()
-    return YantraCalendarEngine(AstronomyEngine(SwissEphemeris(ephemeris.absolutePath)))
+    val ayanamsa = selectedAyanamsa(loadAyanamsaId(context))
+    return YantraCalendarEngine(
+        AstronomyEngine(SwissEphemeris(ephemeris.absolutePath, ayanamsa)),
+        ayanamsa = ayanamsa,
+    )
 }
 
 private fun observance(context: Context, state: YantraState, previous: YantraState): Pair<String, String>? {
