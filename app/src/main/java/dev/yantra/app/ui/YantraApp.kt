@@ -140,12 +140,13 @@ fun YantraApp() {
         FestivalCatalog.match(engine.compute(today, observer), engine.compute(today.minusDays(1), observer))
     }
     var specialDays by remember(context) { mutableStateOf(loadSpecialDays(context)) }
-    val specialDay = remember(state, specialDays) { specialDays.firstOrNull { it.matches(state) } }
     var userEvents by remember(context) { mutableStateOf(loadUserEvents(context)) }
     var logoPath by remember(context) { mutableStateOf(loadUserLogoPath(context)) }
     val userLogo = remember(logoPath) { logoPath?.let(::loadLogoBitmap) }
     val userEvent = remember(state, userEvents) { userEvents.firstOrNull { it.matches(state) } }
-    val observanceLabel = specialDay?.name ?: userEvent?.name ?: festival?.name
+    val observanceLabel = remember(now.toLocalDate(), engine, observer, specialDays, userEvents) {
+        observanceOnDate(now, engine, observer, specialDays, userEvents)
+    }
     var lunarEmphasis by remember { mutableStateOf(false) }
     var datePickerOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
@@ -408,6 +409,33 @@ fun YantraApp() {
     }
 }
 
+private fun observanceOnDate(
+    dateTime: ZonedDateTime,
+    engine: YantraCalendarEngine,
+    observer: Observer,
+    specialDays: List<SpecialDay>,
+    userEvents: List<UserEvent>,
+): String? {
+    val dayStart = dateTime.toLocalDate().atStartOfDay(dateTime.zone)
+    val samples = (0..47).map { dayStart.plusMinutes(it * 30L) } + dayStart.plusDays(1).minusMinutes(1)
+    val states = samples.map { sample -> engine.compute(sample, observer) }
+    return states.firstNotNullOfOrNull { state -> specialDays.firstOrNull { it.matches(state) }?.name }
+        ?: states.firstNotNullOfOrNull { state -> userEvents.firstOrNull { it.matches(state) }?.name }
+        ?: states.indices.firstNotNullOfOrNull { index ->
+            FestivalCatalog.match(states[index], engine.compute(samples[index].minusDays(1), observer))?.name
+        }
+        ?: states.firstNotNullOfOrNull(::recurringObservanceName)
+}
+
+private fun recurringObservanceName(state: YantraState): String? = when (state.tithi.index) {
+    29 -> "Amavasya"
+    14 -> "Purnima"
+    10, 25 -> "Ekadashi"
+    12, 27 -> "Pradosham"
+    18 -> "Sankashti Chaturthi"
+    else -> null
+}
+
 @Composable
 private fun SpecialDayEditor(
     state: YantraState,
@@ -635,6 +663,7 @@ private fun YantraSettingsScreen(
     }
     var importText by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
+    var eventValidationMessage by remember { mutableStateOf<String?>(null) }
     var savedDaysOpen by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
     val ivory = Color(0xFFFFE8B0)
@@ -830,9 +859,18 @@ private fun YantraSettingsScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
+                        val criteriaCount = listOf(draft.month, draft.paksha, draft.tithiIndex, draft.nakshatra, draft.rashi).count { it != null }
+                        if (draft.name.isBlank()) {
+                            eventValidationMessage = "Enter an event name, then select at least two calendar criteria."
+                            return@Button
+                        }
+                        if (criteriaCount < 2) {
+                            eventValidationMessage = "Select at least two criteria from Maasa, Paksha, Tithi, Nakshatra, and Rashi."
+                            return@Button
+                        }
                         val event = draft.toEvent()
                         if (event == null) {
-                            message = "Name and at least two criteria are required."
+                            eventValidationMessage = "Check the event name and select at least two valid calendar criteria."
                             return@Button
                         }
                         val next = events.toMutableList()
@@ -910,6 +948,21 @@ private fun YantraSettingsScreen(
                 Text("Open Source Repository")
             }
             Spacer(modifier = Modifier.height(24.dp))
+        }
+        eventValidationMessage?.let { validationMessage ->
+            AlertDialog(
+                onDismissRequest = { eventValidationMessage = null },
+                title = { Text("Event not saved") },
+                text = { Text(validationMessage) },
+                confirmButton = {
+                    TextButton(
+                        onClick = { eventValidationMessage = null },
+                        colors = textButtonColors,
+                    ) {
+                        Text("Choose criteria")
+                    }
+                },
+            )
         }
     }
 }
@@ -1484,7 +1537,7 @@ private fun YantraInstrument(
     val yearLabel = state.samvatsara.name.uppercase()
 
     Canvas(
-        modifier = modifier.pointerInput(state, now, observanceLabel, annotation) {
+        modifier = modifier.pointerInput(state, now, observanceLabel, annotation, monthNameSet.id) {
             detectTapGestures(
                 onLongPress = { tap ->
                     val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
