@@ -15,6 +15,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,9 +48,7 @@ private const val DAY_CACHE_VERSION = "2"
 private enum class DaySection(val label: String) {
     Festivals("Festivals"),
     Special("Special Days"),
-    User("User Days");
-
-    fun next(): DaySection = entries[(ordinal + 1) % entries.size]
+    User("User Days"),
 }
 
 private data class DayOccurrence(val at: ZonedDateTime)
@@ -62,6 +62,11 @@ private data class DayBrowserItem(
 )
 
 private data class RecurringTithi(val name: String, val indexes: List<Int>)
+
+private data class PendingReclassification(
+    val sourceName: String,
+    val occurrence: DayOccurrence,
+)
 
 private val recurringTithis = listOf(
     RecurringTithi("Amavasya", listOf(29)),
@@ -83,6 +88,7 @@ internal fun DaysScreen(
     onDismiss: () -> Unit,
     onSelect: (ZonedDateTime) -> Unit,
     onAddDays: () -> Unit,
+    onUserEventsChanged: (List<UserEvent>) -> Unit,
 ) {
     val ivory = Color(0xFFFFE8B0)
     val gold = Color(0xFFE8CA8B)
@@ -93,6 +99,10 @@ internal fun DaysScreen(
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var editMode by remember { mutableStateOf(false) }
+    var pendingReclassification by remember { mutableStateOf<PendingReclassification?>(null) }
+    var reclassificationName by remember { mutableStateOf("") }
+    var reclassificationTarget by remember { mutableStateOf(DaySection.User) }
+    var reclassificationError by remember { mutableStateOf<String?>(null) }
     val openSections = remember { mutableStateMapOf<DaySection, Boolean>() }
     val openRecurring = remember { mutableStateMapOf<String, Boolean>() }
     val overrides = remember { mutableStateMapOf<String, DaySection>().apply { putAll(loadDaySections(context)) } }
@@ -143,7 +153,7 @@ internal fun DaysScreen(
                 Text("Days could not be calculated. Please close this screen and try again.", color = ivory)
             } else {
                 DaySection.entries.forEach { section ->
-                    val sectionItems = items.filter { (overrides[it.key] ?: it.defaultSection) == section }
+                    val sectionItems = items.filter { resolvedSection(it, overrides) == section }
                     val open = openSections[section] == true
                     Button(
                         onClick = { openSections[section] = !open },
@@ -155,7 +165,6 @@ internal fun DaysScreen(
                             item = item,
                             editMode = editMode,
                             expanded = openRecurring[item.key] == true,
-                            section = overrides[item.key] ?: item.defaultSection,
                             gold = gold,
                             ivory = ivory,
                             onClick = {
@@ -163,30 +172,103 @@ internal fun DaysScreen(
                                 else item.occurrences.firstOrNull()?.let { onSelect(it.at) }
                             },
                             onOccurrence = { onSelect(it.at) },
-                            onReclassify = {
-                                val next = (overrides[item.key] ?: item.defaultSection).next()
-                                overrides[item.key] = next
-                                saveDaySections(context, overrides)
+                            onReclassifyOccurrence = { occurrence ->
+                                pendingReclassification = PendingReclassification(item.name, occurrence)
+                                reclassificationName = ""
+                                reclassificationTarget = DaySection.User
+                                reclassificationError = null
                             },
                         )
                     }
                 }
             }
         }
+        pendingReclassification?.let { pending ->
+            val dateFormat = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
+            AlertDialog(
+                onDismissRequest = { pendingReclassification = null },
+                title = { Text("Classify ${pending.sourceName}") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(pending.occurrence.at.format(dateFormat))
+                        Text("The original ${pending.sourceName} entry will remain unchanged.")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { reclassificationTarget = DaySection.Festivals },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (reclassificationTarget == DaySection.Festivals) copper else deepCopper,
+                                    contentColor = ivory,
+                                ),
+                            ) { Text("Festival") }
+                            Button(
+                                onClick = { reclassificationTarget = DaySection.User },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (reclassificationTarget == DaySection.User) copper else deepCopper,
+                                    contentColor = ivory,
+                                ),
+                            ) { Text("User event") }
+                        }
+                        OutlinedTextField(
+                            value = reclassificationName,
+                            onValueChange = { reclassificationName = it; reclassificationError = null },
+                            label = { Text("New name") },
+                            singleLine = true,
+                            isError = reclassificationError != null,
+                            supportingText = reclassificationError?.let { error -> { Text(error) } },
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val name = reclassificationName.trim()
+                        if (name.isBlank()) {
+                            reclassificationError = "Enter a name for the new entry."
+                            return@TextButton
+                        }
+                        val state = engine.observanceState(pending.occurrence.at.plusMinutes(2), observer)
+                        val event = UserEvent(
+                            name = name,
+                            month = state.lunarMonth,
+                            paksha = state.paksha,
+                            tithiIndex = state.tithiIndex,
+                        )
+                        val nextEvents = (userEvents + event).distinctBy { it.identityKey() }
+                        if (reclassificationTarget == DaySection.Festivals) {
+                            overrides["user:${event.identityKey()}"] = DaySection.Festivals
+                        } else {
+                            overrides.remove("user:${event.identityKey()}")
+                        }
+                        saveDaySections(context, overrides)
+                        onUserEventsChanged(nextEvents)
+                        pendingReclassification = null
+                    }, colors = ButtonDefaults.textButtonColors(contentColor = brightGold)) {
+                        Text("Create")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { pendingReclassification = null },
+                        colors = ButtonDefaults.textButtonColors(contentColor = gold),
+                    ) { Text("Cancel") }
+                },
+            )
+        }
     }
 }
+
+private fun resolvedSection(item: DayBrowserItem, overrides: Map<String, DaySection>): DaySection =
+    if (item.defaultSection == DaySection.User) overrides[item.key] ?: DaySection.User else item.defaultSection
 
 @Composable
 private fun DayItemRow(
     item: DayBrowserItem,
     editMode: Boolean,
     expanded: Boolean,
-    section: DaySection,
     gold: Color,
     ivory: Color,
     onClick: () -> Unit,
     onOccurrence: (DayOccurrence) -> Unit,
-    onReclassify: () -> Unit,
+    onReclassifyOccurrence: (DayOccurrence) -> Unit,
 ) {
     val dateFormat = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
     Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -195,11 +277,17 @@ private fun DayItemRow(
                 val suffix = if (item.recurring) "  ${if (expanded) "▾" else "▸"}" else item.occurrences.firstOrNull()?.let { "  ${it.at.format(dateFormat)}" }.orEmpty()
                 Text(item.name + suffix)
             }
-            if (editMode) TextButton(onClick = onReclassify, colors = ButtonDefaults.textButtonColors(contentColor = gold)) { Text("Move from ${section.label}") }
         }
         if (expanded) item.occurrences.forEach { occurrence ->
-            TextButton(onClick = { onOccurrence(occurrence) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = gold)) {
-                Text(occurrence.at.format(dateFormat))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onOccurrence(occurrence) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = gold)) {
+                    Text(occurrence.at.format(dateFormat))
+                }
+                if (editMode && item.recurring) {
+                    TextButton(onClick = { onReclassifyOccurrence(occurrence) }, colors = ButtonDefaults.textButtonColors(contentColor = gold)) {
+                        Text("Reclassify")
+                    }
+                }
             }
         }
     }
