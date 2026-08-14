@@ -61,6 +61,15 @@ gradle wrapper --gradle-version 8.9 --distribution-type bin
 .\gradlew :app:assembleDebug
 ```
 
+For a signed release build, `build-release.bat` configures Android Studio's Java runtime, the Android SDK, Gradle user home, and `local.properties` before rebuilding from scratch:
+
+```powershell
+.\build-release.bat apk
+.\build-release.bat bundle
+```
+
+The `apk` option creates an installable APK; `bundle` creates the AAB uploaded to Google Play. Signing properties must be kept in `%USERPROFILE%\.gradle\gradle.properties`.
+
 The app packages the current-era Swiss Ephemeris files:
 
 - `app/src/main/assets/ephe/sepl_18.se1`
