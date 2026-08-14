@@ -286,10 +286,6 @@ fun YantraApp() {
                                 daysScreenOpen = false
                                 settingsOpen = true
                             },
-                            onUserEventsChanged = { next ->
-                                saveUserEvents(context, next)
-                                userEvents = next
-                            },
                         )
                     }
                     if (datePickerOpen) {

@@ -15,8 +15,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,7 +39,6 @@ import org.json.JSONObject
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
-private const val DAY_SECTION_PREFS = "yantra_day_sections"
 private const val DAY_CACHE_PREFS = "yantra_day_cache"
 private const val DAY_CACHE_VERSION = "2"
 
@@ -63,11 +60,6 @@ private data class DayBrowserItem(
 
 private data class RecurringTithi(val name: String, val indexes: List<Int>)
 
-private data class PendingReclassification(
-    val sourceName: String,
-    val occurrence: DayOccurrence,
-)
-
 private val recurringTithis = listOf(
     RecurringTithi("Amavasya", listOf(29)),
     RecurringTithi("Purnima", listOf(14)),
@@ -88,7 +80,6 @@ internal fun DaysScreen(
     onDismiss: () -> Unit,
     onSelect: (ZonedDateTime) -> Unit,
     onAddDays: () -> Unit,
-    onUserEventsChanged: (List<UserEvent>) -> Unit,
 ) {
     val ivory = Color(0xFFFFE8B0)
     val gold = Color(0xFFE8CA8B)
@@ -98,14 +89,8 @@ internal fun DaysScreen(
     var items by remember { mutableStateOf<List<DayBrowserItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    var editMode by remember { mutableStateOf(false) }
-    var pendingReclassification by remember { mutableStateOf<PendingReclassification?>(null) }
-    var reclassificationName by remember { mutableStateOf("") }
-    var reclassificationTarget by remember { mutableStateOf(DaySection.User) }
-    var reclassificationError by remember { mutableStateOf<String?>(null) }
     val openSections = remember { mutableStateMapOf<DaySection, Boolean>() }
     val openRecurring = remember { mutableStateMapOf<String, Boolean>() }
-    val overrides = remember { mutableStateMapOf<String, DaySection>().apply { putAll(loadDaySections(context)) } }
 
     LaunchedEffect(engine, observer, now.toLocalDate(), specialDays, userEvents, calendarConfigKey) {
         loading = true
@@ -143,9 +128,6 @@ internal fun DaysScreen(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onAddDays, colors = ButtonDefaults.buttonColors(containerColor = copper, contentColor = ivory)) { Text("Add days") }
-                TextButton(onClick = { editMode = !editMode }, colors = ButtonDefaults.textButtonColors(contentColor = brightGold)) {
-                    Text(if (editMode) "Done" else "Reclassify")
-                }
             }
             if (loading) {
                 CircularProgressIndicator(color = gold, modifier = Modifier.align(Alignment.CenterHorizontally))
@@ -153,7 +135,7 @@ internal fun DaysScreen(
                 Text("Days could not be calculated. Please close this screen and try again.", color = ivory)
             } else {
                 DaySection.entries.forEach { section ->
-                    val sectionItems = items.filter { resolvedSection(it, overrides) == section }
+                    val sectionItems = items.filter { it.defaultSection == section }
                     val open = openSections[section] == true
                     Button(
                         onClick = { openSections[section] = !open },
@@ -163,7 +145,6 @@ internal fun DaysScreen(
                     if (open) sectionItems.forEach { item ->
                         DayItemRow(
                             item = item,
-                            editMode = editMode,
                             expanded = openRecurring[item.key] == true,
                             gold = gold,
                             ivory = ivory,
@@ -172,103 +153,22 @@ internal fun DaysScreen(
                                 else item.occurrences.firstOrNull()?.let { onSelect(it.at) }
                             },
                             onOccurrence = { onSelect(it.at) },
-                            onReclassifyOccurrence = { occurrence ->
-                                pendingReclassification = PendingReclassification(item.name, occurrence)
-                                reclassificationName = ""
-                                reclassificationTarget = DaySection.User
-                                reclassificationError = null
-                            },
                         )
                     }
                 }
             }
         }
-        pendingReclassification?.let { pending ->
-            val dateFormat = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
-            AlertDialog(
-                onDismissRequest = { pendingReclassification = null },
-                title = { Text("Classify ${pending.sourceName}") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(pending.occurrence.at.format(dateFormat))
-                        Text("The original ${pending.sourceName} entry will remain unchanged.")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { reclassificationTarget = DaySection.Festivals },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (reclassificationTarget == DaySection.Festivals) copper else deepCopper,
-                                    contentColor = ivory,
-                                ),
-                            ) { Text("Festival") }
-                            Button(
-                                onClick = { reclassificationTarget = DaySection.User },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (reclassificationTarget == DaySection.User) copper else deepCopper,
-                                    contentColor = ivory,
-                                ),
-                            ) { Text("User event") }
-                        }
-                        OutlinedTextField(
-                            value = reclassificationName,
-                            onValueChange = { reclassificationName = it; reclassificationError = null },
-                            label = { Text("New name") },
-                            singleLine = true,
-                            isError = reclassificationError != null,
-                            supportingText = reclassificationError?.let { error -> { Text(error) } },
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val name = reclassificationName.trim()
-                        if (name.isBlank()) {
-                            reclassificationError = "Enter a name for the new entry."
-                            return@TextButton
-                        }
-                        val state = engine.observanceState(pending.occurrence.at.plusMinutes(2), observer)
-                        val event = UserEvent(
-                            name = name,
-                            month = state.lunarMonth,
-                            paksha = state.paksha,
-                            tithiIndex = state.tithiIndex,
-                        )
-                        val nextEvents = (userEvents + event).distinctBy { it.identityKey() }
-                        if (reclassificationTarget == DaySection.Festivals) {
-                            overrides["user:${event.identityKey()}"] = DaySection.Festivals
-                        } else {
-                            overrides.remove("user:${event.identityKey()}")
-                        }
-                        saveDaySections(context, overrides)
-                        onUserEventsChanged(nextEvents)
-                        pendingReclassification = null
-                    }, colors = ButtonDefaults.textButtonColors(contentColor = brightGold)) {
-                        Text("Create")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { pendingReclassification = null },
-                        colors = ButtonDefaults.textButtonColors(contentColor = gold),
-                    ) { Text("Cancel") }
-                },
-            )
-        }
     }
 }
-
-private fun resolvedSection(item: DayBrowserItem, overrides: Map<String, DaySection>): DaySection =
-    if (item.defaultSection == DaySection.User) overrides[item.key] ?: DaySection.User else item.defaultSection
 
 @Composable
 private fun DayItemRow(
     item: DayBrowserItem,
-    editMode: Boolean,
     expanded: Boolean,
     gold: Color,
     ivory: Color,
     onClick: () -> Unit,
     onOccurrence: (DayOccurrence) -> Unit,
-    onReclassifyOccurrence: (DayOccurrence) -> Unit,
 ) {
     val dateFormat = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
     Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -279,15 +179,8 @@ private fun DayItemRow(
             }
         }
         if (expanded) item.occurrences.forEach { occurrence ->
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onOccurrence(occurrence) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = gold)) {
-                    Text(occurrence.at.format(dateFormat))
-                }
-                if (editMode && item.recurring) {
-                    TextButton(onClick = { onReclassifyOccurrence(occurrence) }, colors = ButtonDefaults.textButtonColors(contentColor = gold)) {
-                        Text("Reclassify")
-                    }
-                }
+            TextButton(onClick = { onOccurrence(occurrence) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColors(contentColor = gold)) {
+                Text(occurrence.at.format(dateFormat))
             }
         }
     }
@@ -401,17 +294,6 @@ private fun buildDayItems(
         compareBy<DayBrowserItem> { item -> item.occurrences.firstOrNull()?.at }
             .thenBy { item -> item.name },
     )
-}
-
-private fun loadDaySections(context: Context): Map<String, DaySection> =
-    context.getSharedPreferences(DAY_SECTION_PREFS, Context.MODE_PRIVATE).all.mapNotNull { (key, value) ->
-        DaySection.entries.firstOrNull { it.name == value }?.let { key to it }
-    }.toMap()
-
-private fun saveDaySections(context: Context, values: Map<String, DaySection>) {
-    context.getSharedPreferences(DAY_SECTION_PREFS, Context.MODE_PRIVATE).edit().clear().apply {
-        values.forEach { (key, section) -> putString(key, section.name) }
-    }.apply()
 }
 
 private fun dayCacheKey(
