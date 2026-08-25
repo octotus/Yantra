@@ -152,6 +152,7 @@ fun YantraApp() {
     var settingsOpen by remember { mutableStateOf(false) }
     var specialDayEditorOpen by remember { mutableStateOf(false) }
     var daysScreenOpen by remember { mutableStateOf(false) }
+    var observanceDetailsOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
     val annotationScope = rememberCoroutineScope()
@@ -193,11 +194,12 @@ fun YantraApp() {
         }
     }
 
-    BackHandler(enabled = datePickerOpen || settingsOpen || daysScreenOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
+    BackHandler(enabled = datePickerOpen || settingsOpen || daysScreenOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
         when {
             datePickerOpen -> datePickerOpen = false
             settingsOpen -> settingsOpen = false
             daysScreenOpen -> daysScreenOpen = false
+            observanceDetailsOpen -> observanceDetailsOpen = false
             specialDayEditorOpen -> specialDayEditorOpen = false
             annotation != null -> annotation = null
             datePreviewActive -> {
@@ -251,7 +253,7 @@ fun YantraApp() {
                             now = ZonedDateTime.now(observerLocation.zoneId)
                         },
                         onFestivalTap = {
-                            daysScreenOpen = true
+                            if (observanceLabel != null) observanceDetailsOpen = true else daysScreenOpen = true
                         },
                         onAnnotation = { tapped ->
                             annotation = tapped
@@ -378,6 +380,29 @@ fun YantraApp() {
                                     notificationEnabled = false
                                     setNotificationsEnabled(context, false)
                                 }) { androidx.compose.material3.Text("Not now") }
+                            },
+                        )
+                    }
+                    if (observanceDetailsOpen && observanceLabel != null) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { observanceDetailsOpen = false },
+                            title = { androidx.compose.material3.Text(observanceLabel) },
+                            text = {
+                                androidx.compose.material3.Text(
+                                    "${state.lunarMonth} ${state.paksha} ${(state.tithi.index % 15) + 1}\n" +
+                                        "${state.nakshatra.name} nakshatra · ${state.solarRashi.name} solar rashi"
+                                )
+                            },
+                            confirmButton = {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    observanceDetailsOpen = false
+                                    daysScreenOpen = true
+                                }) { androidx.compose.material3.Text("View all days") }
+                            },
+                            dismissButton = {
+                                androidx.compose.material3.TextButton(onClick = { observanceDetailsOpen = false }) {
+                                    androidx.compose.material3.Text("Close")
+                                }
                             },
                         )
                     }
@@ -1163,10 +1188,10 @@ private const val AYANAMSA_KEY = "ayanamsa"
 private fun selectedMonthNameSet(id: String): MonthNameSet =
     CalendarCatalog.monthNameSets.firstOrNull { it.id == id } ?: CalendarCatalog.monthNameSets.first()
 
-private fun selectedCalendarLocaleRule(id: String) =
+internal fun selectedCalendarLocaleRule(id: String) =
     CalendarCatalog.calendarLocaleRules.firstOrNull { it.id == id } ?: CalendarCatalog.calendarLocaleRules.first()
 
-private fun selectedMonthReckoning(id: String): MonthReckoning =
+internal fun selectedMonthReckoning(id: String): MonthReckoning =
     MonthReckoning.values().firstOrNull { it.id == id } ?: MonthReckoning.Amanta
 
 internal fun selectedAyanamsa(id: String): Ayanamsa =
@@ -1184,7 +1209,7 @@ private fun saveMonthNameSetId(context: Context, id: String) {
         .apply()
 }
 
-private fun loadCalendarLocaleRuleId(context: Context): String =
+internal fun loadCalendarLocaleRuleId(context: Context): String =
     context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .getString(CALENDAR_LOCALE_RULE_KEY, CalendarCatalog.calendarLocaleRules.first().id)
         ?: CalendarCatalog.calendarLocaleRules.first().id
@@ -1196,7 +1221,7 @@ private fun saveCalendarLocaleRuleId(context: Context, id: String) {
         .apply()
 }
 
-private fun loadMonthReckoningId(context: Context): String =
+internal fun loadMonthReckoningId(context: Context): String =
     context.getSharedPreferences(USER_SETTINGS_PREFS, Context.MODE_PRIVATE)
         .getString(MONTH_RECKONING_KEY, MonthReckoning.Amanta.id)
         ?: MonthReckoning.Amanta.id

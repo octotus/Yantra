@@ -21,9 +21,11 @@ import dev.yantra.app.engine.AstronomyEngine
 import dev.yantra.app.engine.EphemerisAssets
 import dev.yantra.app.engine.SwissEphemeris
 import java.time.ZonedDateTime
+import kotlin.concurrent.thread
 
 private const val NOTIFICATION_PREFS = "yantra_notifications"
 private const val ENABLED_KEY = "enabled"
+private const val LAST_CHECK_DATE_KEY = "last_check_date"
 private const val CHANNEL_ID = "yantra_observances"
 private const val DAILY_REQUEST = 7101
 private const val CANCEL_REQUEST = 7102
@@ -33,7 +35,12 @@ internal fun notificationsEnabled(context: Context): Boolean =
     context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).getBoolean(ENABLED_KEY, true)
 
 internal fun setNotificationsEnabled(context: Context, enabled: Boolean) {
-    context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit().putBoolean(ENABLED_KEY, enabled).apply()
+    context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit()
+        .putBoolean(ENABLED_KEY, enabled)
+        .apply {
+            if (enabled) remove(LAST_CHECK_DATE_KEY)
+        }
+        .apply()
     if (enabled) ObservanceNotificationScheduler.schedule(context) else ObservanceNotificationScheduler.cancel(context)
 }
 
@@ -54,8 +61,14 @@ internal object ObservanceNotificationScheduler {
         createChannel(context)
         val zone = loadObserverLocation(context).zoneId
         val now = ZonedDateTime.now(zone)
-        var next = now.withHour(6).withMinute(0).withSecond(0).withNano(0)
-        if (!next.isAfter(now)) next = next.plusDays(1)
+        val sixToday = now.withHour(6).withMinute(0).withSecond(0).withNano(0)
+        val lastCheckDate = context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+            .getString(LAST_CHECK_DATE_KEY, null)
+        val next = when {
+            now.isBefore(sixToday) -> sixToday
+            lastCheckDate != now.toLocalDate().toString() -> now.plusSeconds(5)
+            else -> sixToday.plusDays(1)
+        }
         val intent = PendingIntent.getBroadcast(
             context,
             DAILY_REQUEST,
@@ -75,6 +88,9 @@ internal object ObservanceNotificationScheduler {
 
     fun reschedule(context: Context) {
         cancel(context)
+        context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit()
+            .remove(LAST_CHECK_DATE_KEY)
+            .apply()
         schedule(context)
     }
 }
@@ -86,6 +102,8 @@ private fun engine(context: Context): YantraCalendarEngine {
     val ayanamsa = selectedAyanamsa(loadAyanamsaId(context))
     return YantraCalendarEngine(
         AstronomyEngine(SwissEphemeris(ephemeris.absolutePath, ayanamsa)),
+        calendarLocaleRule = selectedCalendarLocaleRule(loadCalendarLocaleRuleId(context)),
+        monthReckoning = selectedMonthReckoning(loadMonthReckoningId(context)),
         ayanamsa = ayanamsa,
     )
 }
@@ -102,9 +120,26 @@ private fun observance(context: Context, state: YantraState, previous: YantraSta
 class ObservanceNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (!notificationsEnabled(context)) return
+        val pendingResult = goAsync()
+        val appContext = context.applicationContext
+        thread(name = "yantra-observance", isDaemon = true) {
+            try {
+                deliverNotification(appContext)
+            } finally {
+                ObservanceNotificationScheduler.schedule(appContext)
+                pendingResult.finish()
+            }
+        }
+    }
+
+    private fun deliverNotification(context: Context) {
         val observerLocation = loadObserverLocation(context)
         val calendar = engine(context)
-        val dayStart = ZonedDateTime.now(observerLocation.zoneId).toLocalDate().atStartOfDay(observerLocation.zoneId)
+        val today = ZonedDateTime.now(observerLocation.zoneId).toLocalDate()
+        context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit()
+            .putString(LAST_CHECK_DATE_KEY, today.toString())
+            .apply()
+        val dayStart = today.atStartOfDay(observerLocation.zoneId)
         val occurrence = (0..47).firstNotNullOfOrNull { halfHour ->
             val at = dayStart.plusMinutes(halfHour * 30L)
             val state = calendar.compute(at, observerLocation.observer)
@@ -127,7 +162,6 @@ class ObservanceNotificationReceiver : BroadcastReceiver() {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
             scheduleCancellation(context, end)
         }
-        ObservanceNotificationScheduler.schedule(context)
     }
 
     private fun findEnd(context: Context, calendar: YantraCalendarEngine, location: ObserverLocation, occurrence: ObservanceOccurrence): ZonedDateTime {
