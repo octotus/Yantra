@@ -14,6 +14,52 @@ class YantraCalendarEngine(
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
     private val ayanamsa: Ayanamsa = Ayanamsa.Lahiri,
 ) {
+    fun findNextOccurrence(
+        reference: ZonedDateTime,
+        observer: Observer,
+        samvatsaraOffset: Int,
+        criteria: FinderCriteria,
+    ): FinderResult? {
+        if (criteria.isEmpty) return null
+        val referenceResolution = resolveLunarYearMonths(reference, observer, astronomyEngine.compute(reference, observer).julianDay)
+        val targetStartYear = referenceResolution.lunisolarYearStartYear + samvatsaraOffset
+        val targetSamvatsaraIndex = Math.floorMod(targetStartYear + SAMVATSARA_YEAR_OFFSET, 60)
+        val windowStart = reference.withMonth(1).withDayOfMonth(1).withYear(targetStartYear).toLocalDate().atStartOfDay(reference.zone)
+        val windowEnd = windowStart.plusYears(2)
+
+        fun matches(candidate: ZonedDateTime, verifyYear: Boolean): Boolean {
+            val state = observanceState(candidate, observer)
+            if (criteria.monthIndex != null && CalendarCatalog.lunarMonths[criteria.monthIndex].name != state.lunarMonth) return false
+            if (criteria.tithiIndex != null && criteria.tithiIndex != state.tithiIndex) return false
+            if (criteria.nakshatraIndex != null && CalendarCatalog.nakshatras[criteria.nakshatraIndex].name != state.nakshatraName) return false
+            if (criteria.solarRashiIndex != null && CalendarCatalog.rashis[criteria.solarRashiIndex].name != state.solarRashiName) return false
+            return !verifyYear || compute(candidate, observer).samvatsara.index == targetSamvatsaraIndex
+        }
+
+        val searchStart = if (samvatsaraOffset == 0 && reference.isAfter(windowStart)) reference else windowStart
+        var previous = searchStart
+        var previousMatched = false
+        var cursor = searchStart
+        while (cursor.isBefore(windowEnd)) {
+            val basicMatch = matches(cursor, verifyYear = false)
+            if (basicMatch && matches(cursor, verifyYear = true)) {
+                var low = previous
+                var high = cursor
+                if (previousMatched) low = cursor.minusHours(2)
+                while (Duration.between(low, high).toMinutes() > 1) {
+                    val middle = low.plusSeconds(Duration.between(low, high).seconds / 2)
+                    if (matches(middle, verifyYear = true)) high = middle else low = middle
+                }
+                val resultState = compute(high, observer)
+                if (resultState.samvatsara.index == targetSamvatsaraIndex) return FinderResult(high, resultState)
+            }
+            previous = cursor
+            previousMatched = basicMatch
+            cursor = cursor.plusHours(2)
+        }
+        return null
+    }
+
     fun observanceState(dateTime: ZonedDateTime, observer: Observer): ObservanceState {
         val celestial = astronomyEngine.compute(dateTime, observer)
         val ayanamsaDegrees = ayanamsa.approximateDegrees(celestial.julianDay)

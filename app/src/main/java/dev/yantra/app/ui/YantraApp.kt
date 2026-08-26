@@ -152,6 +152,7 @@ fun YantraApp() {
     var settingsOpen by remember { mutableStateOf(false) }
     var specialDayEditorOpen by remember { mutableStateOf(false) }
     var daysScreenOpen by remember { mutableStateOf(false) }
+    var finderOpen by remember { mutableStateOf(false) }
     var observanceDetailsOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
@@ -194,11 +195,12 @@ fun YantraApp() {
         }
     }
 
-    BackHandler(enabled = datePickerOpen || settingsOpen || daysScreenOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
+    BackHandler(enabled = datePickerOpen || settingsOpen || daysScreenOpen || finderOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
         when {
             datePickerOpen -> datePickerOpen = false
             settingsOpen -> settingsOpen = false
             daysScreenOpen -> daysScreenOpen = false
+            finderOpen -> finderOpen = false
             observanceDetailsOpen -> observanceDetailsOpen = false
             specialDayEditorOpen -> specialDayEditorOpen = false
             annotation != null -> annotation = null
@@ -245,6 +247,7 @@ fun YantraApp() {
                             .fillMaxWidth()
                             .fillMaxSize(),
                         onMoonTap = { lunarEmphasis = true },
+                        onMoonLongPress = { finderOpen = true },
                         onDateTap = { datePickerOpen = true },
                         onDateLongPress = { specialDayEditorOpen = true },
                         onSettingsTap = { settingsOpen = true },
@@ -268,6 +271,21 @@ fun YantraApp() {
                         },
                         onAnnotationDismiss = { annotation = null },
                     )
+                    if (finderOpen) {
+                        YantraFinderScreen(
+                            engine = engine,
+                            observer = observer,
+                            reference = now,
+                            initialState = state,
+                            monthNameSet = monthNameSet,
+                            onDismiss = { finderOpen = false },
+                            onLoadResult = { found ->
+                                now = found.withZoneSameInstant(observerLocation.zoneId)
+                                datePreviewActive = true
+                                finderOpen = false
+                            },
+                        )
+                    }
                     if (daysScreenOpen) {
                         DaysScreen(
                             context = context,
@@ -1537,6 +1555,7 @@ private fun YantraInstrument(
     now: ZonedDateTime,
     modifier: Modifier = Modifier,
     onMoonTap: () -> Unit,
+    onMoonLongPress: () -> Unit,
     onDateTap: () -> Unit,
     onDateLongPress: () -> Unit,
     onSettingsTap: () -> Unit,
@@ -1566,8 +1585,13 @@ private fun YantraInstrument(
             detectTapGestures(
                 onLongPress = { tap ->
                     val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
-                    if (annotation == null && tap.isInRect(layout.dateHitRect)) {
-                        onDateLongPress()
+                    if (annotation == null) {
+                        val distance = hypot(tap.x - layout.center.x, tap.y - layout.center.y)
+                        val moonRadius = layout.radius * 0.19f
+                        when {
+                            distance <= moonRadius * 1.6f -> onMoonLongPress()
+                            tap.isInRect(layout.dateHitRect) -> onDateLongPress()
+                        }
                     }
                 },
                 onTap = { tap ->

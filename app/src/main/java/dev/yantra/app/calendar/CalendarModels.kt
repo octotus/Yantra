@@ -92,6 +92,21 @@ data class ObservanceState(
     val monthReckoning: MonthReckoning,
 )
 
+data class FinderCriteria(
+    val monthIndex: Int? = null,
+    val tithiIndex: Int? = null,
+    val nakshatraIndex: Int? = null,
+    val solarRashiIndex: Int? = null,
+) {
+    val isEmpty: Boolean
+        get() = monthIndex == null && tithiIndex == null && nakshatraIndex == null && solarRashiIndex == null
+}
+
+data class FinderResult(
+    val dateTime: java.time.ZonedDateTime,
+    val state: YantraState,
+)
+
 object CalendarCatalog {
     val lunarMonths = listOf(
         MonthSector(0, "Chaitra", "CHA", 29.5, 30.0),
