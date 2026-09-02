@@ -25,5 +25,14 @@ target_include_directories(
 
 target_compile_definitions(yantra_ephemeris PRIVATE NO_SIGNAL)
 
+# Android 15+ devices may use 16 KiB memory pages. Keep the native Swiss
+# Ephemeris bridge load segments compatible even when an older NDK is used.
+target_link_options(
+    yantra_ephemeris
+    PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
+
 find_library(log-lib log)
 target_link_libraries(yantra_ephemeris ${log-lib} m)
