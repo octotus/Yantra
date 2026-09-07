@@ -1676,7 +1676,7 @@ internal fun YantraInstrument(
         withTransform({
             translate(left = centerShift.x, top = centerShift.y)
         }) {
-            withTransform({ rotate(overrides.tithiRotation, canvasCenter.x, canvasCenter.y) }) {
+            withTransform({ rotate(overrides.tithiRotation, pivot = canvasCenter) }) {
                 drawTithiRing(
                     activeIndex = state.tithi.index.takeIf { overrides.tithiActive },
                     radius = tithiRingRadius,
@@ -1685,10 +1685,10 @@ internal fun YantraInstrument(
                     active = activeGold,
                 )
             }
-            withTransform({ rotate(overrides.nakshatraRotation, canvasCenter.x, canvasCenter.y) }) {
+            withTransform({ rotate(overrides.nakshatraRotation, pivot = canvasCenter) }) {
                 drawRing(27, state.nakshatra.index.takeIf { overrides.nakshatraActive }, nakshatraRingRadius, ringWidth, inactiveRingColor, activeGold.copy(alpha = 0.22f + lunarBoost * 0.08f))
             }
-            withTransform({ rotate(overrides.monthRotation, canvasCenter.x, canvasCenter.y) }) {
+            withTransform({ rotate(overrides.monthRotation, pivot = canvasCenter) }) {
                 drawMonthRing(
                     sectors = localizedMonthSectors(state.monthSectors, monthNameSet),
                     activeIndex = state.month.index.takeIf { overrides.monthActive },
@@ -1698,7 +1698,7 @@ internal fun YantraInstrument(
                     active = activeGold,
                 )
             }
-            withTransform({ rotate(overrides.rashiRotation, canvasCenter.x, canvasCenter.y) }) {
+            withTransform({ rotate(overrides.rashiRotation, pivot = canvasCenter) }) {
                 drawLagnaRashiRing(
                     sectors = state.lagnaSectors,
                     activeLagnaIndex = state.lagnaRashi?.index.takeIf { !overrides.inactiveMetal || overrides.rashiActive },
@@ -1710,7 +1710,7 @@ internal fun YantraInstrument(
                     showHand = !overrides.inactiveMetal || overrides.rashiActive,
                 )
             }
-            withTransform({ rotate(overrides.nakshatraRotation, canvasCenter.x, canvasCenter.y) }) {
+            withTransform({ rotate(overrides.nakshatraRotation, pivot = canvasCenter) }) {
                 drawNakshatraSigilRing(
                     activeIndex = state.nakshatra.index.takeIf { overrides.nakshatraActive },
                     radius = nakshatraRingRadius,
@@ -1720,7 +1720,7 @@ internal fun YantraInstrument(
                     images = sigilImages,
                 )
             }
-            withTransform({ rotate(overrides.rashiRotation, canvasCenter.x, canvasCenter.y) }) {
+            withTransform({ rotate(overrides.rashiRotation, pivot = canvasCenter) }) {
                 drawRashiSigilRing(
                     activeIndex = rashiActiveIndex.takeIf { overrides.rashiActive },
                     lagnaIndex = state.lagnaRashi?.index,
