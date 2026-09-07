@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -137,7 +138,9 @@ internal fun ObserverLocationPanel(
         containerColor = brightGold,
         contentColor = ink,
     )
-    val bronzeTextButtonColors = ButtonDefaults.textButtonColors(contentColor = brightGold)
+    val dialogTextButtonColors = ButtonDefaults.textButtonColors(
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    )
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = ivory,
         unfocusedTextColor = ivory,
@@ -249,9 +252,9 @@ internal fun ObserverLocationPanel(
                     TextButton(onClick = {
                         privacyOpen = false
                         permissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                    }, colors = bronzeTextButtonColors) { Text("Allow location") }
+                    }, colors = dialogTextButtonColors) { Text("Allow location") }
                 },
-                dismissButton = { TextButton(onClick = ::openManualEntry, colors = bronzeTextButtonColors) { Text("Choose a city") } },
+                dismissButton = { TextButton(onClick = ::openManualEntry, colors = dialogTextButtonColors) { Text("Choose a city") } },
             )
         }
         if (manualOpen) {

@@ -277,6 +277,7 @@ fun YantraApp() {
                             observer = observer,
                             reference = now,
                             initialState = state,
+                            sigilImages = sigilImages,
                             monthNameSet = monthNameSet,
                             onDismiss = { finderOpen = false },
                             onLoadResult = { found ->
@@ -1474,7 +1475,7 @@ private fun cryptexLayout(width: Float, height: Float): CryptexLayout {
     return CryptexLayout(outerRect, columns, commitRect)
 }
 
-private data class YantraLayout(
+internal data class YantraLayout(
     val center: Offset,
     val radius: Float,
     val dateHitRect: Rect,
@@ -1484,21 +1485,21 @@ private data class YantraLayout(
     val lotusRadius: Float,
 )
 
-private enum class AnnotationKind {
+internal enum class AnnotationKind {
     Rashi,
     Masa,
     Nakshatra,
     Tithi,
 }
 
-private data class YantraAnnotation(
+internal data class YantraAnnotation(
     val kind: AnnotationKind,
     val index: Int,
     val name: String,
     val durationLabel: String? = null,
 )
 
-private fun yantraLayout(width: Float, height: Float): YantraLayout {
+internal fun yantraLayout(width: Float, height: Float): YantraLayout {
     val radius = min(width * 0.462f, height * 0.34f)
     val ringWidth = radius * 0.135f
     val tithiRingWidth = ringWidth * 1.15f
@@ -1540,7 +1541,7 @@ private fun yantraLayout(width: Float, height: Float): YantraLayout {
 private fun lotusRadiusForLayout(ringWidth: Float): Float = ringWidth * 0.76f
 
 @Composable
-private fun YantraInstrument(
+internal fun YantraInstrument(
     state: YantraState,
     sigilImages: SigilImages,
     monthNameSet: MonthNameSet,
