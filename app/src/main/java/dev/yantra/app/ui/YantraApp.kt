@@ -1499,6 +1499,18 @@ internal data class YantraAnnotation(
     val durationLabel: String? = null,
 )
 
+internal data class YantraInstrumentOverrides(
+    val tithiActive: Boolean = true,
+    val nakshatraActive: Boolean = true,
+    val monthActive: Boolean = true,
+    val rashiActive: Boolean = true,
+    val tithiRotation: Float = 0f,
+    val nakshatraRotation: Float = 0f,
+    val monthRotation: Float = 0f,
+    val rashiRotation: Float = 0f,
+    val inactiveMetal: Boolean = false,
+)
+
 internal fun yantraLayout(width: Float, height: Float): YantraLayout {
     val radius = min(width * 0.462f, height * 0.34f)
     val ringWidth = radius * 0.135f
@@ -1564,6 +1576,7 @@ internal fun YantraInstrument(
     onFestivalTap: () -> Unit,
     onAnnotation: (YantraAnnotation) -> Unit,
     onAnnotationDismiss: () -> Unit,
+    overrides: YantraInstrumentOverrides = YantraInstrumentOverrides(),
 ) {
     val moonlight by animateFloatAsState(
         targetValue = (state.moonIllumination * ((state.lunarAltitude + 8.0) / 58.0)).toFloat().coerceIn(0f, 0.55f),
@@ -1577,6 +1590,8 @@ internal fun YantraInstrument(
     val activeSilver = Color(0xFFD7E5FF)
     val bronze = Color(0xFF5E4328)
     val brass = Color(0xFFC59B5C)
+    val inactiveRingColor = if (overrides.inactiveMetal) Color(0xFF747978) else bronze
+    val inactiveSigilColor = if (overrides.inactiveMetal) Color(0xFF858983) else brass
     val brightGold = Color(0xFFFFE2A3)
     val dateLabel = remember(now) { now.format(DateTimeFormatter.ofPattern("dd MMM yyyy")).uppercase() }
     val yearLabel = state.samvatsara.name.uppercase()
@@ -1661,49 +1676,62 @@ internal fun YantraInstrument(
         withTransform({
             translate(left = centerShift.x, top = centerShift.y)
         }) {
-            drawTithiRing(
-                activeIndex = state.tithi.index,
-                radius = tithiRingRadius,
-                width = tithiRingWidth,
-                inactive = bronze,
-                active = activeGold,
-            )
-            drawRing(27, state.nakshatra.index, nakshatraRingRadius, ringWidth, bronze, activeGold.copy(alpha = 0.22f + lunarBoost * 0.08f))
-            drawMonthRing(
-                sectors = localizedMonthSectors(state.monthSectors, monthNameSet),
-                activeIndex = state.month.index,
-                radius = monthRingRadius,
-                width = ringWidth,
-                inactive = bronze,
-                active = activeGold,
-            )
-            drawLagnaRashiRing(
-                sectors = state.lagnaSectors,
-                activeLagnaIndex = state.lagnaRashi?.index,
-                dayFraction = state.lagnaDayFraction,
-                radius = rashiRingRadius,
-                width = rashiRingWidth,
-                inactive = bronze,
-                activeLagna = activeGold,
-            )
-            drawNakshatraSigilRing(
-                activeIndex = state.nakshatra.index,
-                radius = nakshatraRingRadius,
-                iconSize = ringWidth * 1.08f,
-                inactive = brass.copy(alpha = 0.4f),
-                active = activeGold.copy(alpha = 0.96f),
-                images = sigilImages,
-            )
-            drawRashiSigilRing(
-                activeIndex = rashiActiveIndex,
-                lagnaIndex = state.lagnaRashi?.index,
-                sectors = state.lagnaSectors,
-                radius = rashiRingRadius,
-                iconSize = ringWidth * 1.2f,
-                trackWidth = rashiRingWidth,
-                inactive = brass.copy(alpha = 0.46f),
-                active = rashiActiveColor,
-            )
+            withTransform({ rotate(overrides.tithiRotation, canvasCenter.x, canvasCenter.y) }) {
+                drawTithiRing(
+                    activeIndex = state.tithi.index.takeIf { overrides.tithiActive },
+                    radius = tithiRingRadius,
+                    width = tithiRingWidth,
+                    inactive = inactiveRingColor,
+                    active = activeGold,
+                )
+            }
+            withTransform({ rotate(overrides.nakshatraRotation, canvasCenter.x, canvasCenter.y) }) {
+                drawRing(27, state.nakshatra.index.takeIf { overrides.nakshatraActive }, nakshatraRingRadius, ringWidth, inactiveRingColor, activeGold.copy(alpha = 0.22f + lunarBoost * 0.08f))
+            }
+            withTransform({ rotate(overrides.monthRotation, canvasCenter.x, canvasCenter.y) }) {
+                drawMonthRing(
+                    sectors = localizedMonthSectors(state.monthSectors, monthNameSet),
+                    activeIndex = state.month.index.takeIf { overrides.monthActive },
+                    radius = monthRingRadius,
+                    width = ringWidth,
+                    inactive = inactiveRingColor,
+                    active = activeGold,
+                )
+            }
+            withTransform({ rotate(overrides.rashiRotation, canvasCenter.x, canvasCenter.y) }) {
+                drawLagnaRashiRing(
+                    sectors = state.lagnaSectors,
+                    activeLagnaIndex = state.lagnaRashi?.index.takeIf { !overrides.inactiveMetal || overrides.rashiActive },
+                    dayFraction = state.lagnaDayFraction,
+                    radius = rashiRingRadius,
+                    width = rashiRingWidth,
+                    inactive = inactiveRingColor,
+                    activeLagna = activeGold,
+                    showHand = !overrides.inactiveMetal || overrides.rashiActive,
+                )
+            }
+            withTransform({ rotate(overrides.nakshatraRotation, canvasCenter.x, canvasCenter.y) }) {
+                drawNakshatraSigilRing(
+                    activeIndex = state.nakshatra.index.takeIf { overrides.nakshatraActive },
+                    radius = nakshatraRingRadius,
+                    iconSize = ringWidth * 1.08f,
+                    inactive = inactiveSigilColor.copy(alpha = 0.72f),
+                    active = activeGold.copy(alpha = 0.96f),
+                    images = sigilImages,
+                )
+            }
+            withTransform({ rotate(overrides.rashiRotation, canvasCenter.x, canvasCenter.y) }) {
+                drawRashiSigilRing(
+                    activeIndex = rashiActiveIndex.takeIf { overrides.rashiActive },
+                    lagnaIndex = state.lagnaRashi?.index,
+                    sectors = state.lagnaSectors,
+                    radius = rashiRingRadius,
+                    iconSize = ringWidth * 1.2f,
+                    trackWidth = rashiRingWidth,
+                    inactive = inactiveSigilColor.copy(alpha = 0.78f),
+                    active = rashiActiveColor,
+                )
+            }
         }
         drawMetalCircleBoundaries(
             center = center,
@@ -2698,7 +2726,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlassLayer(
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRing(
     segmentCount: Int,
-    activeIndex: Int,
+    activeIndex: Int?,
     radius: Float,
     width: Float,
     inactive: Color,
@@ -2728,6 +2756,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLagnaRashiRing(
     width: Float,
     inactive: Color,
     activeLagna: Color,
+    showHand: Boolean = true,
 ) {
     val outerRadius = radius + width * 0.42f
     val innerRadius = radius - width * 0.42f
@@ -2766,7 +2795,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLagnaRashiRing(
         drawLine(line.copy(alpha = 0.62f), center.polar(startRad, innerRadius), center.polar(startRad, outerRadius), lineWidth)
         drawLine(line.copy(alpha = 0.62f), center.polar(endRad, innerRadius), center.polar(endRad, outerRadius), lineWidth)
     }
-    drawLagnaHand(sectors, dayFraction, radius, width, activeLagna)
+    if (showHand) drawLagnaHand(sectors, dayFraction, radius, width, activeLagna)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLagnaHand(
@@ -2820,7 +2849,7 @@ private fun lagnaHandAngle(sectors: List<LagnaSector>, dayFraction: Double): Flo
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMonthRing(
     sectors: List<MonthSector>,
-    activeIndex: Int,
+    activeIndex: Int?,
     radius: Float,
     width: Float,
     inactive: Color,
@@ -2836,7 +2865,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMonthRing(
         val sweep = sector.arcDegrees.toFloat()
         val activeCell = sector.index == activeIndex
         val line = if (activeCell) active.copy(alpha = 0.9f) else inactive.copy(alpha = 0.82f)
-        val text = if (activeCell) active.copy(alpha = 0.98f) else Color(0xFFB98C56).copy(alpha = 0.62f)
+        val text = if (activeCell) active.copy(alpha = 0.98f) else inactive.copy(alpha = 0.62f)
         val gap = min(1.2f, sweep * 0.12f)
 
         drawArc(
@@ -2867,19 +2896,21 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMonthRing(
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTithiRing(
-    activeIndex: Int,
+    activeIndex: Int?,
     radius: Float,
     width: Float,
     inactive: Color,
     active: Color,
 ) {
     drawTithiCells(activeIndex, radius, width, inactive, active)
-    drawPakshaGuide(activeIndex, radius, width, active, Color(0xFF9AA0A6))
-    drawTithiHand(activeIndex, radius, width, active)
+    activeIndex?.let {
+        drawPakshaGuide(it, radius, width, active, Color(0xFF9AA0A6))
+        drawTithiHand(it, radius, width, active)
+    }
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTithiCells(
-    activeIndex: Int,
+    activeIndex: Int?,
     radius: Float,
     width: Float,
     inactive: Color,
@@ -2896,7 +2927,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTithiCells(
         val start = tithiCellStartAngle(index)
         val activeCell = index == activeIndex
         val line = if (activeCell) active.copy(alpha = 0.9f) else inactive.copy(alpha = 0.82f)
-        val text = if (activeCell) active.copy(alpha = 0.98f) else Color(0xFFB98C56).copy(alpha = 0.62f)
+        val text = if (activeCell) active.copy(alpha = 0.98f) else inactive.copy(alpha = 0.62f)
 
         drawArc(
             color = line,
@@ -3086,7 +3117,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSectorCells(
     for (index in 0 until segmentCount) {
         val activeCell = index == activeIndex
         val line = if (activeCell) active.copy(alpha = 0.86f) else inactive.copy(alpha = 0.82f)
-        val text = if (activeCell) active.copy(alpha = 0.98f) else Color(0xFFB98C56).copy(alpha = 0.62f)
+        val text = if (activeCell) active.copy(alpha = 0.98f) else inactive.copy(alpha = 0.62f)
         drawArc(
             color = line,
             startAngle = start + 0.6f,
@@ -3145,7 +3176,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSectorLabel(
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRashiSigilRing(
-    activeIndex: Int,
+    activeIndex: Int?,
     lagnaIndex: Int?,
     sectors: List<LagnaSector>,
     radius: Float,
@@ -3185,7 +3216,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRashiSigilRing(
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNakshatraSigilRing(
-    activeIndex: Int,
+    activeIndex: Int?,
     radius: Float,
     iconSize: Float,
     inactive: Color,
@@ -3306,7 +3337,7 @@ private fun tithiCellStartAngle(index: Int): Float =
         -84f + (index - 15) * 12f
     }
 
-private fun tithiCellCenterAngle(index: Int): Float = tithiCellStartAngle(index) + 6f
+internal fun tithiCellCenterAngle(index: Int): Float = tithiCellStartAngle(index) + 6f
 
 private fun Offset.isInRect(rect: Rect): Boolean =
     x in rect.left..rect.right && y in rect.top..rect.bottom

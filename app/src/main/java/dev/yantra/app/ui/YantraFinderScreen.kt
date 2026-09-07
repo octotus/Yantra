@@ -44,6 +44,20 @@ import kotlin.math.hypot
 
 private enum class FinderRing { Samvatsara, Tithi, Nakshatra, Month, Rashi }
 
+private fun finderRingAt(point: Offset, width: Float, height: Float): FinderRing? {
+    val layout = yantraLayout(width, height)
+    val distance = hypot(point.x - layout.center.x, point.y - layout.center.y)
+    val radius = layout.radius
+    return when {
+        distance >= radius * 1.04f -> FinderRing.Samvatsara
+        distance >= radius * 0.875f -> FinderRing.Tithi
+        distance >= radius * 0.70f -> FinderRing.Nakshatra
+        distance >= radius * 0.57f -> FinderRing.Month
+        distance >= radius * 0.38f -> FinderRing.Rashi
+        else -> null
+    }
+}
+
 @Composable
 internal fun YantraFinderScreen(
     engine: YantraCalendarEngine,
@@ -69,6 +83,28 @@ internal fun YantraFinderScreen(
     var noResult by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val selectedSamvatsara = CalendarCatalog.samvatsaras[Math.floorMod(initialState.samvatsara.index + samvatsaraOffset, 60)]
+    fun monthRotation(index: Int): Float {
+        val start = initialState.monthSectors.take(index).sumOf { it.arcDegrees }
+        return -(start + initialState.monthSectors[index].arcDegrees / 2.0).toFloat()
+    }
+
+    fun rashiRotation(index: Int): Float {
+        val sector = initialState.lagnaSectors.firstOrNull { it.index == index }
+        val fraction = sector?.let { it.startFraction + it.durationFraction / 2.0 } ?: (index + 0.5) / 12.0
+        return -(fraction * 360.0).toFloat()
+    }
+
+    val overrides = YantraInstrumentOverrides(
+        tithiActive = tithiActive,
+        nakshatraActive = nakshatraActive,
+        monthActive = monthActive,
+        rashiActive = rashiActive,
+        tithiRotation = if (tithiActive) -90f - tithiCellCenterAngle(tithiIndex) else 0f,
+        nakshatraRotation = if (nakshatraActive) -((nakshatraIndex + 0.5f) * 360f / 27f) else 0f,
+        monthRotation = if (monthActive) monthRotation(monthIndex) else 0f,
+        rashiRotation = if (rashiActive) rashiRotation(rashiIndex) else 0f,
+        inactiveMetal = true,
+    )
     val displayState = initialState.copy(
         samvatsara = selectedSamvatsara,
         tithi = CalendarCatalog.tithis[tithiIndex],
@@ -129,6 +165,7 @@ internal fun YantraFinderScreen(
             onFestivalTap = {},
             onAnnotation = {},
             onAnnotationDismiss = {},
+            overrides = overrides,
         )
 
         Canvas(
@@ -138,18 +175,7 @@ internal fun YantraFinderScreen(
                     var accumulated = 0f
                     detectDragGestures(
                         onDragStart = { point ->
-                            val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
-                            val center = layout.center
-                            val radius = layout.radius
-                            val distance = hypot(point.x - center.x, point.y - center.y)
-                            activeRing = when {
-                                distance >= radius * 1.04f -> FinderRing.Samvatsara
-                                distance >= radius * 0.875f -> FinderRing.Tithi
-                                distance >= radius * 0.70f -> FinderRing.Nakshatra
-                                distance >= radius * 0.57f -> FinderRing.Month
-                                distance >= radius * 0.38f -> FinderRing.Rashi
-                                else -> null
-                            }
+                            activeRing = finderRingAt(point, size.width.toFloat(), size.height.toFloat())
                             accumulated = 0f
                         },
                         onDrag = { change, drag ->
@@ -173,12 +199,23 @@ internal fun YantraFinderScreen(
                     )
                 }
                 .pointerInput(searching, tithiActive, nakshatraActive, monthActive, rashiActive, samvatsaraOffset) {
-                    detectTapGestures { point ->
-                        val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
-                        val center = layout.center
-                        val radius = layout.radius
-                        if (hypot(point.x - center.x, point.y - center.y) <= radius * 0.18f) solve()
-                    }
+                    detectTapGestures(
+                        onDoubleTap = { point ->
+                            when (finderRingAt(point, size.width.toFloat(), size.height.toFloat())) {
+                                FinderRing.Tithi -> tithiActive = !tithiActive
+                                FinderRing.Nakshatra -> nakshatraActive = !nakshatraActive
+                                FinderRing.Month -> monthActive = !monthActive
+                                FinderRing.Rashi -> rashiActive = !rashiActive
+                                FinderRing.Samvatsara, null -> Unit
+                            }
+                        },
+                        onTap = { point ->
+                            val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
+                            val center = layout.center
+                            val radius = layout.radius
+                            if (hypot(point.x - center.x, point.y - center.y) <= radius * 0.18f) solve()
+                        },
+                    )
                 }
         ) {
         }
@@ -192,6 +229,12 @@ internal fun YantraFinderScreen(
                 }, colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFFE2A3))) { Text("Clear") }
             }
         }
+
+        Text(
+            text = "double tap any ring to activate",
+            color = Color(0xFF747978),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+        )
 
         if (searching) CircularProgressIndicator(color = Color(0xFFFFD992), modifier = Modifier.align(Alignment.BottomCenter).padding(28.dp))
         if (noResult) {
