@@ -156,6 +156,7 @@ fun YantraApp() {
     var observanceDetailsOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
     var annotation by remember { mutableStateOf<YantraAnnotation?>(null) }
+    var celestialDetail by remember { mutableStateOf<YantraAnnotation?>(null) }
     val annotationScope = rememberCoroutineScope()
     var notificationEnabled by remember(context) { mutableStateOf(notificationsEnabled(context)) }
     var notificationExplanationOpen by remember(context) {
@@ -195,8 +196,9 @@ fun YantraApp() {
         }
     }
 
-    BackHandler(enabled = datePickerOpen || settingsOpen || daysScreenOpen || finderOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
+    BackHandler(enabled = celestialDetail != null || datePickerOpen || settingsOpen || daysScreenOpen || finderOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
         when {
+            celestialDetail != null -> celestialDetail = null
             datePickerOpen -> datePickerOpen = false
             settingsOpen -> settingsOpen = false
             daysScreenOpen -> daysScreenOpen = false
@@ -259,18 +261,39 @@ fun YantraApp() {
                             if (observanceLabel != null) observanceDetailsOpen = true else daysScreenOpen = true
                         },
                         onAnnotation = { tapped ->
-                            annotation = tapped
-                            annotationScope.launch {
-                                val detailed = withContext(Dispatchers.Default) {
-                                    tapped.withDuration(context, now, state, engine, observer)
-                                }
-                                if (annotation?.kind == tapped.kind && annotation?.index == tapped.index) {
-                                    annotation = detailed
+                            if (tapped.kind != AnnotationKind.Tithi) {
+                                celestialDetail = tapped
+                            } else {
+                                annotation = tapped
+                                annotationScope.launch {
+                                    val detailed = withContext(Dispatchers.Default) {
+                                        tapped.withDuration(context, now, state, engine, observer)
+                                    }
+                                    if (annotation?.kind == tapped.kind && annotation?.index == tapped.index) {
+                                        annotation = detailed
+                                    }
                                 }
                             }
                         },
                         onAnnotationDismiss = { annotation = null },
                     )
+                    celestialDetail?.let { detail ->
+                        AstronomicalDetailScreen(
+                            annotation = detail,
+                            reference = now,
+                            calendarEngine = engine,
+                            observer = observer,
+                            monthNames = monthNameSet,
+                            reckoning = monthReckoning,
+                            ayanamsa = ayanamsa,
+                            onDismiss = { celestialDetail = null },
+                            onShowDate = { selected ->
+                                now = selected
+                                datePreviewActive = true
+                                celestialDetail = null
+                            },
+                        )
+                    }
                     if (finderOpen) {
                         YantraFinderScreen(
                             engine = engine,

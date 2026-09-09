@@ -14,6 +14,34 @@ class YantraCalendarEngine(
     private val monthReckoning: MonthReckoning = MonthReckoning.Amanta,
     private val ayanamsa: Ayanamsa = Ayanamsa.Lahiri,
 ) {
+    /** Independent calculation caches for a background detail screen. */
+    fun fork() = YantraCalendarEngine(astronomyEngine, calendarLocaleRule, monthReckoning, ayanamsa)
+
+    fun chartSnapshot(dateTime: ZonedDateTime) = astronomyEngine.chartSnapshot(dateTime)
+
+    /** Surrounding physical months, including adhika occurrences and kshaya omissions.
+     * Purnimanta boundaries are full moons, not a renamed new-moon interval. */
+    fun lunarMonthIntervals(reference: ZonedDateTime, observer: Observer): List<LunarMonthInterval> {
+        val jd = astronomyEngine.compute(reference, observer).julianDay
+        val newMoons = findNewMoons(jd - 430, jd + 430, reference, observer, jd)
+        val lunations = newMoons.zipWithNext().map { (start, end) ->
+            Lunation(start, end, findSankrantis(start, end, reference, observer, jd))
+        }
+        return lunations.mapIndexed { index, lunation ->
+            var start = dateTimeAtJulianDay(reference, jd, lunation.start)
+            var end = dateTimeAtJulianDay(reference, jd, lunation.end)
+            if (monthReckoning == MonthReckoning.Purnimanta) {
+                start = estimateElongationCrossing(start, observer, 180.0, -180.0, 12.19074864)
+                end = estimateElongationCrossing(end, observer, 180.0, -180.0, 12.19074864)
+            }
+            LunarMonthInterval(
+                resolveMonthIndex(lunations, index), start, end,
+                intercalary = lunation.sankrantis.isEmpty(),
+                skippedMonthIndex = lunation.sankrantis.getOrNull(1)?.rashiIndex,
+            )
+        }
+    }
+
     fun findNextOccurrence(
         reference: ZonedDateTime,
         observer: Observer,
@@ -485,8 +513,8 @@ class YantraCalendarEngine(
         var previousJd = fromJulianDay
         var previousSun = siderealLongitudes(previousJd, referenceDateTime, observer, referenceJulianDay).sun
         var previousRashi = floor(previousSun / 30.0).toInt().coerceIn(0, 11)
-        var jd = fromJulianDay + 0.75
-        while (jd <= toJulianDay) {
+        var jd = minOf(fromJulianDay + 0.75, toJulianDay)
+        while (previousJd < toJulianDay) {
             val currentSun = siderealLongitudes(jd, referenceDateTime, observer, referenceJulianDay).sun
             val currentRashi = floor(currentSun / 30.0).toInt().coerceIn(0, 11)
             if (currentRashi != previousRashi) {
@@ -502,7 +530,7 @@ class YantraCalendarEngine(
             previousJd = jd
             previousSun = currentSun
             previousRashi = currentRashi
-            jd += 0.75
+            jd = minOf(jd + 0.75, toJulianDay)
         }
         return sankrantis
     }

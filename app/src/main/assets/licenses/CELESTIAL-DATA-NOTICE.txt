@@ -1,0 +1,48 @@
+Yantra celestial chart data
+==========================
+
+Star positions and visual magnitudes
+-----------------------------------
+The 5,044 records in celestial/stars.tsv are converted from stars.6.json in
+Olaf Frohn's d3-celestial project:
+https://github.com/ofrohn/d3-celestial
+https://github.com/ofrohn/d3-celestial/blob/master/data/stars.6.json
+
+Copyright (c) 2015, Olaf Frohn. Distributed under the BSD 3-Clause license;
+the full notice is included in D3-CELESTIAL-BSD.txt.
+
+d3-celestial identifies its stellar data source as:
+XHIP: An Extended Hipparcos Compilation, E. Anderson and C. Francis (2012),
+Astronomy Letters 38, 331; VizieR catalogue V/137D.
+https://cdsarc.cds.unistra.fr/viz-bin/cat/V/137D
+
+Yantra converts the GeoJSON records to TSV, normalizes right ascension to
+0..360 degrees, and retains HIP identifiers, coordinates and magnitudes.
+
+Stellar patterns
+----------------
+The 12 rashi context patterns are adapted from Stellarium's Western sky
+culture. Text and data authors: Stellarium's team. Upstream license: CC BY-SA.
+https://github.com/Stellarium/stellarium-skycultures/tree/master/western
+
+The 27 nakshatra patterns are adapted from Stellarium's Indian sky culture.
+Authors: Tanmoy Saha, Vishvas Vasuki, contributors from the sanskrit-coders
+community; reworked by Susanne M Hoffmann. Upstream license: CC BY-SA.
+https://github.com/Stellarium/stellarium-skycultures/tree/master/indian
+
+The upstream descriptions specify CC BY-SA without a version. These adapted
+pattern data retain that attribution and share-alike designation; they are
+separate from Yantra's AGPL application source. License overview:
+https://creativecommons.org/licenses/by-sa/
+
+Changes: only the twelve zodiac constellations and first 27 lunar stations
+are retained; line chains become individual edges; zero-length edges are
+removed while retaining single-star patterns. UI names use Yantra's catalogue.
+No Stellarium illustrations, translations or constellation boundaries are used.
+
+Uttara Bhadrapada: corrected upstream HIP 667 to HIP 677 (Alpheratz), paired
+with HIP 1067 (Algenib), following Susanne M Hoffmann and Youla Azkarrula:
+https://ase.exopla.net/index.php/Uttara_Bhadrapada
+
+Source files were retrieved on 2026-09-09. Their SHA-256 fingerprints are
+recorded in celestial/source_hashes.json. These notices do not imply endorsement.

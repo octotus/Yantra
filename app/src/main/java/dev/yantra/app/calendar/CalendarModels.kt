@@ -107,6 +107,20 @@ data class FinderResult(
     val state: YantraState,
 )
 
+/** One physical lunation; repeated month names remain separate occurrences. */
+data class LunarMonthInterval(
+    val monthIndex: Int,
+    val start: java.time.ZonedDateTime,
+    val end: java.time.ZonedDateTime,
+    val intercalary: Boolean,
+    val skippedMonthIndex: Int? = null,
+) {
+    fun contains(date: java.time.ZonedDateTime): Boolean = !date.isBefore(start) && date.isBefore(end)
+    fun progress(date: java.time.ZonedDateTime): Double =
+        (java.time.Duration.between(start, date).seconds.toDouble() /
+            java.time.Duration.between(start, end).seconds).coerceIn(0.0, 1.0)
+}
+
 object CalendarCatalog {
     val lunarMonths = listOf(
         MonthSector(0, "Chaitra", "CHA", 29.5, 30.0),

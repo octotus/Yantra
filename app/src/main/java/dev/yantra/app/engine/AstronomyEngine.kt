@@ -33,11 +33,15 @@ data class EclipticLongitudes(
 
 interface LongitudeProvider {
     fun longitudes(julianDayUt: Double, observer: Observer): EclipticLongitudes?
+    fun chartSnapshot(julianDayUt: Double): CelestialSnapshot? = null
 }
 
 class AstronomyEngine(
     private val longitudeProvider: LongitudeProvider? = null,
 ) {
+    fun chartSnapshot(dateTime: ZonedDateTime): CelestialSnapshot? =
+        longitudeProvider?.chartSnapshot(julianDay(dateTime))
+
     fun compute(dateTime: ZonedDateTime, observer: Observer): CelestialState {
         val jd = julianDay(dateTime)
         val d = jd - 2451545.0
