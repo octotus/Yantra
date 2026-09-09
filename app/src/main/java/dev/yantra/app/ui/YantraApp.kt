@@ -1757,28 +1757,6 @@ internal fun YantraInstrument(
                     active = rashiActiveColor,
                 )
             }
-            overrides.focusedKind?.let { focused ->
-                val focusedRotation = when (focused) {
-                    AnnotationKind.Tithi -> overrides.tithiRotation
-                    AnnotationKind.Nakshatra -> overrides.nakshatraRotation
-                    AnnotationKind.Masa -> overrides.monthRotation
-                    AnnotationKind.Rashi -> overrides.rashiRotation
-                }
-                withTransform({ rotate(focusedRotation, pivot = canvasCenter) }) {
-                    drawFocusedYantraRing(
-                        focused = focused,
-                        state = state,
-                        sigilImages = sigilImages,
-                        monthNameSet = monthNameSet,
-                        lunarEmphasis = lunarEmphasis,
-                        radius = radius - ringWidth * 1.02f,
-                        width = ringWidth * 1.68f,
-                        inactive = Color(0xFF403326),
-                        active = activeGold,
-                        rashiActiveColor = rashiActiveColor,
-                    )
-                }
-            }
         }
         drawMetalCircleBoundaries(
             center = center,
@@ -1826,6 +1804,31 @@ internal fun YantraInstrument(
         }
 
         drawGlassLayer(center, bodyRadius, innerRadius = faceRadius)
+        overrides.focusedKind?.let { focused ->
+            val focusedRotation = when (focused) {
+                AnnotationKind.Tithi -> overrides.tithiRotation
+                AnnotationKind.Nakshatra -> overrides.nakshatraRotation
+                AnnotationKind.Masa -> overrides.monthRotation
+                AnnotationKind.Rashi -> overrides.rashiRotation
+            }
+            withTransform({
+                translate(left = centerShift.x, top = centerShift.y)
+                rotate(focusedRotation, pivot = canvasCenter)
+            }) {
+                drawFocusedYantraRing(
+                    focused = focused,
+                    state = state,
+                    sigilImages = sigilImages,
+                    monthNameSet = monthNameSet,
+                    lunarEmphasis = lunarEmphasis,
+                    radius = radius - ringWidth * 1.02f,
+                    width = ringWidth * 1.68f,
+                    inactive = Color(0xFF6D5A42),
+                    active = activeGold,
+                    rashiActiveColor = rashiActiveColor,
+                )
+            }
+        }
         drawCircumferenceLabels(
             center = center,
             bodyRadius = bodyRadius,
@@ -1887,8 +1890,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFocusedYantraRi
     active: Color,
     rashiActiveColor: Color,
 ) {
-    drawCircle(Color(0xFF050302).copy(alpha = 0.54f), radius + width * 0.72f)
-    drawCircle(active.copy(alpha = 0.22f), radius + width * 0.53f, style = Stroke(width = width * 0.08f))
+    drawCircle(Color(0xFF050302).copy(alpha = 0.72f), radius, style = Stroke(width = width * 1.18f))
+    drawCircle(active.copy(alpha = 0.36f), radius, style = Stroke(width = width * 1.28f))
+    drawCircle(Color(0xFFFFF0BD).copy(alpha = 0.72f), radius + width * 0.66f, style = Stroke(width = width * 0.055f))
+    drawCircle(Color(0xFFFFF0BD).copy(alpha = 0.42f), radius - width * 0.66f, style = Stroke(width = width * 0.045f))
     when (focused) {
         AnnotationKind.Tithi -> drawTithiRing(
             activeIndex = state.tithi.index,
