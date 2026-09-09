@@ -1904,11 +1904,11 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFocusedYantraRi
         )
         AnnotationKind.Nakshatra -> {
             drawRing(27, state.nakshatra.index, radius, width, inactive, active.copy(alpha = 0.36f))
-            drawNakshatraSigilRing(
+            drawFocusedNakshatraSigils(
                 activeIndex = state.nakshatra.index,
                 radius = radius,
-                iconSize = width * 0.92f,
-                inactive = inactive.copy(alpha = 0.8f),
+                iconSize = width * 0.8f,
+                inactive = Color(0xFFFFE8B0).copy(alpha = 0.78f),
                 active = active.copy(alpha = 0.98f),
                 images = sigilImages,
             )
@@ -1931,17 +1931,76 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFocusedYantraRi
                 inactive = inactive,
                 activeLagna = active,
             )
-            drawRashiSigilRing(
+            drawFocusedRashiSigils(
                 activeIndex = if (lunarEmphasis) state.lunarRashi.index else state.solarRashi.index,
                 lagnaIndex = state.lagnaRashi?.index,
                 sectors = state.lagnaSectors,
                 radius = radius,
-                iconSize = width * 0.9f,
-                trackWidth = width,
-                inactive = inactive.copy(alpha = 0.82f),
+                iconSize = width * 0.72f,
+                inactive = Color(0xFFFFE8B0).copy(alpha = 0.76f),
                 active = rashiActiveColor,
             )
         }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFocusedNakshatraSigils(
+    activeIndex: Int,
+    radius: Float,
+    iconSize: Float,
+    inactive: Color,
+    active: Color,
+    images: SigilImages,
+) {
+    val sweep = 360f / 27f
+    for (index in 0 until 27) {
+        val angle = Math.toRadians((-90f + (index + 0.5f) * sweep).toDouble())
+        val position = Offset(
+            center.x + cos(angle).toFloat() * radius,
+            center.y + sin(angle).toFloat() * radius,
+        )
+        val color = if (index == activeIndex) active else inactive
+        val size = if (index == activeIndex) iconSize * 1.38f else iconSize
+        if (index == activeIndex) {
+            drawCircle(Color(0xFF0B0906).copy(alpha = 0.76f), size * 0.55f, position)
+            drawCircle(active.copy(alpha = 0.3f), size * 0.62f, position, style = Stroke(width = size * 0.06f))
+        }
+        drawNakshatraSigil(index, position, size, color, images)
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFocusedRashiSigils(
+    activeIndex: Int,
+    lagnaIndex: Int?,
+    sectors: List<LagnaSector>,
+    radius: Float,
+    iconSize: Float,
+    inactive: Color,
+    active: Color,
+) {
+    val positions = if (sectors.isEmpty()) {
+        CalendarCatalog.rashis.mapIndexed { index, _ -> Triple(index, (index + 0.5) / 12.0, 1.0) }
+    } else {
+        sectors.map { sector -> Triple(sector.index, sector.startFraction + sector.durationFraction * 0.5, sector.durationFraction * 12.0) }
+    }
+    positions.forEach { (index, fraction, widthRatio) ->
+        val angle = Math.toRadians((-90f + fraction * 360.0).toDouble())
+        val position = Offset(
+            center.x + cos(angle).toFloat() * radius,
+            center.y + sin(angle).toFloat() * radius,
+        )
+        val baseSize = iconSize * widthRatio.toFloat().coerceIn(0.78f, 1.18f)
+        val color = when (index) {
+            activeIndex -> active
+            lagnaIndex -> Color(0xFFFFF0BD).copy(alpha = 0.88f)
+            else -> inactive
+        }
+        val size = if (index == activeIndex) baseSize * 1.45f else baseSize
+        if (index == activeIndex || index == lagnaIndex) {
+            drawCircle(Color(0xFF0B0906).copy(alpha = 0.72f), size * 0.5f, position)
+            drawCircle(color.copy(alpha = 0.28f), size * 0.56f, position, style = Stroke(width = size * 0.055f))
+        }
+        drawRashiSigil(index, position, size, color)
     }
 }
 
