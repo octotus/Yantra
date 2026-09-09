@@ -40,6 +40,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.hypot
 
 private enum class FinderRing { Samvatsara, Tithi, Nakshatra, Month, Rashi }
@@ -49,13 +51,31 @@ private fun finderRingAt(point: Offset, width: Float, height: Float): FinderRing
     val distance = hypot(point.x - layout.center.x, point.y - layout.center.y)
     val radius = layout.radius
     return when {
-        distance >= radius * 1.04f -> FinderRing.Samvatsara
+        distance >= radius * 1.04f && distance <= radius * 1.38f -> FinderRing.Samvatsara
         distance >= radius * 0.875f -> FinderRing.Tithi
         distance >= radius * 0.70f -> FinderRing.Nakshatra
         distance >= radius * 0.57f -> FinderRing.Month
         distance >= radius * 0.38f -> FinderRing.Rashi
         else -> null
     }
+}
+
+private fun FinderRing.asAnnotationKind(): AnnotationKind? = when (this) {
+    FinderRing.Tithi -> AnnotationKind.Tithi
+    FinderRing.Nakshatra -> AnnotationKind.Nakshatra
+    FinderRing.Month -> AnnotationKind.Masa
+    FinderRing.Rashi -> AnnotationKind.Rashi
+    FinderRing.Samvatsara -> null
+}
+
+private fun angleFor(point: Offset, center: Offset): Float =
+    Math.toDegrees(atan2((point.y - center.y).toDouble(), (point.x - center.x).toDouble())).toFloat()
+
+private fun normalizedAngleDelta(current: Float, previous: Float): Float {
+    var delta = current - previous
+    while (delta > 180f) delta -= 360f
+    while (delta < -180f) delta += 360f
+    return delta
 }
 
 @Composable
@@ -81,6 +101,7 @@ internal fun YantraFinderScreen(
     var searching by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<FinderResult?>(null) }
     var noResult by remember { mutableStateOf(false) }
+    var focusedRing by remember { mutableStateOf<FinderRing?>(null) }
     val scope = rememberCoroutineScope()
     val selectedSamvatsara = CalendarCatalog.samvatsaras[Math.floorMod(initialState.samvatsara.index + samvatsaraOffset, 60)]
     fun monthRotation(index: Int): Float {
@@ -94,16 +115,22 @@ internal fun YantraFinderScreen(
         return -(fraction * 360.0).toFloat()
     }
 
+    val tithiVisible = if (focusedRing == null) tithiActive else focusedRing == FinderRing.Tithi
+    val nakshatraVisible = if (focusedRing == null) nakshatraActive else focusedRing == FinderRing.Nakshatra
+    val monthVisible = if (focusedRing == null) monthActive else focusedRing == FinderRing.Month
+    val rashiVisible = if (focusedRing == null) rashiActive else focusedRing == FinderRing.Rashi
     val overrides = YantraInstrumentOverrides(
-        tithiActive = tithiActive,
-        nakshatraActive = nakshatraActive,
-        monthActive = monthActive,
-        rashiActive = rashiActive,
-        tithiRotation = if (tithiActive) -90f - tithiCellCenterAngle(tithiIndex) else 0f,
-        nakshatraRotation = if (nakshatraActive) -((nakshatraIndex + 0.5f) * 360f / 27f) else 0f,
-        monthRotation = if (monthActive) monthRotation(monthIndex) else 0f,
-        rashiRotation = if (rashiActive) rashiRotation(rashiIndex) else 0f,
+        tithiActive = tithiVisible,
+        nakshatraActive = nakshatraVisible,
+        monthActive = monthVisible,
+        rashiActive = rashiVisible,
+        tithiRotation = if (tithiVisible) -90f - tithiCellCenterAngle(tithiIndex) else 0f,
+        nakshatraRotation = if (nakshatraVisible) -((nakshatraIndex + 0.5f) * 360f / 27f) else 0f,
+        monthRotation = if (monthVisible) monthRotation(monthIndex) else 0f,
+        rashiRotation = if (rashiVisible) rashiRotation(rashiIndex) else 0f,
         inactiveMetal = true,
+        focusedKind = focusedRing?.asAnnotationKind(),
+        showYearFlow = true,
     )
     val displayState = initialState.copy(
         samvatsara = selectedSamvatsara,
@@ -170,18 +197,24 @@ internal fun YantraFinderScreen(
 
         Canvas(
             modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 10.dp)
-                .pointerInput(Unit) {
+                .pointerInput(focusedRing) {
                     var activeRing: FinderRing? = null
                     var accumulated = 0f
+                    var previousAngle = 0f
                     detectDragGestures(
                         onDragStart = { point ->
-                            activeRing = finderRingAt(point, size.width.toFloat(), size.height.toFloat())
+                            val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
+                            activeRing = focusedRing ?: finderRingAt(point, size.width.toFloat(), size.height.toFloat())
                             accumulated = 0f
+                            previousAngle = angleFor(point, layout.center)
                         },
-                        onDrag = { change, drag ->
+                        onDrag = { change, _ ->
                             change.consume()
-                            accumulated += drag.x - drag.y
-                            if (kotlin.math.abs(accumulated) >= 22f) {
+                            val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
+                            val currentAngle = angleFor(change.position, layout.center)
+                            accumulated += normalizedAngleDelta(currentAngle, previousAngle)
+                            previousAngle = currentAngle
+                            if (abs(accumulated) >= 12f) {
                                 val step = if (accumulated > 0f) 1 else -1
                                 when (activeRing) {
                                     FinderRing.Samvatsara -> samvatsaraOffset += step
@@ -198,22 +231,29 @@ internal fun YantraFinderScreen(
                         onDragCancel = { activeRing = null },
                     )
                 }
-                .pointerInput(searching, tithiActive, nakshatraActive, monthActive, rashiActive, samvatsaraOffset) {
+                .pointerInput(searching, tithiActive, nakshatraActive, monthActive, rashiActive, samvatsaraOffset, focusedRing) {
                     detectTapGestures(
                         onDoubleTap = { point ->
-                            when (finderRingAt(point, size.width.toFloat(), size.height.toFloat())) {
-                                FinderRing.Tithi -> tithiActive = !tithiActive
-                                FinderRing.Nakshatra -> nakshatraActive = !nakshatraActive
-                                FinderRing.Month -> monthActive = !monthActive
-                                FinderRing.Rashi -> rashiActive = !rashiActive
-                                FinderRing.Samvatsara, null -> Unit
+                            val ring = focusedRing ?: finderRingAt(point, size.width.toFloat(), size.height.toFloat())
+                            when (ring) {
+                                FinderRing.Tithi -> { tithiActive = true; focusedRing = if (focusedRing == FinderRing.Tithi) null else FinderRing.Tithi }
+                                FinderRing.Nakshatra -> { nakshatraActive = true; focusedRing = if (focusedRing == FinderRing.Nakshatra) null else FinderRing.Nakshatra }
+                                FinderRing.Month -> { monthActive = true; focusedRing = if (focusedRing == FinderRing.Month) null else FinderRing.Month }
+                                FinderRing.Rashi -> { rashiActive = true; focusedRing = if (focusedRing == FinderRing.Rashi) null else FinderRing.Rashi }
+                                FinderRing.Samvatsara -> focusedRing = null
+                                null -> focusedRing = null
                             }
                         },
                         onTap = { point ->
                             val layout = yantraLayout(size.width.toFloat(), size.height.toFloat())
                             val center = layout.center
                             val radius = layout.radius
-                            if (hypot(point.x - center.x, point.y - center.y) <= radius * 0.18f) solve()
+                            val hit = finderRingAt(point, size.width.toFloat(), size.height.toFloat())
+                            if (focusedRing != null && (hit == null || hit == FinderRing.Samvatsara)) {
+                                focusedRing = null
+                            } else if (hypot(point.x - center.x, point.y - center.y) <= radius * 0.18f) {
+                                solve()
+                            }
                         },
                     )
                 }
@@ -231,7 +271,8 @@ internal fun YantraFinderScreen(
         }
 
         Text(
-            text = "double tap any ring to activate",
+            text = focusedRing?.let { "drag anywhere on the enlarged ring · double tap or tap empty space to set" }
+                ?: "double tap a ring to enlarge · drag with the ring's motion",
             color = Color(0xFF747978),
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
         )

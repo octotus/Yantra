@@ -1532,6 +1532,8 @@ internal data class YantraInstrumentOverrides(
     val monthRotation: Float = 0f,
     val rashiRotation: Float = 0f,
     val inactiveMetal: Boolean = false,
+    val focusedKind: AnnotationKind? = null,
+    val showYearFlow: Boolean = false,
 )
 
 internal fun yantraLayout(width: Float, height: Float): YantraLayout {
@@ -1755,6 +1757,28 @@ internal fun YantraInstrument(
                     active = rashiActiveColor,
                 )
             }
+            overrides.focusedKind?.let { focused ->
+                val focusedRotation = when (focused) {
+                    AnnotationKind.Tithi -> overrides.tithiRotation
+                    AnnotationKind.Nakshatra -> overrides.nakshatraRotation
+                    AnnotationKind.Masa -> overrides.monthRotation
+                    AnnotationKind.Rashi -> overrides.rashiRotation
+                }
+                withTransform({ rotate(focusedRotation, pivot = canvasCenter) }) {
+                    drawFocusedYantraRing(
+                        focused = focused,
+                        state = state,
+                        sigilImages = sigilImages,
+                        monthNameSet = monthNameSet,
+                        lunarEmphasis = lunarEmphasis,
+                        radius = radius - ringWidth * 1.02f,
+                        width = ringWidth * 1.68f,
+                        inactive = Color(0xFF403326),
+                        active = activeGold,
+                        rashiActiveColor = rashiActiveColor,
+                    )
+                }
+            }
         }
         drawMetalCircleBoundaries(
             center = center,
@@ -1809,6 +1833,8 @@ internal fun YantraInstrument(
             ringWidth = ringWidth,
             dateLabel = dateLabel,
             yearLabel = yearLabel,
+            yearIndex = state.samvatsara.index,
+            showYearFlow = overrides.showYearFlow,
             gold = brightGold,
         )
         drawFestivalLotus(
@@ -1847,6 +1873,71 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackArrowhead(
         gold.copy(alpha = if (prominent) 0.98f else 0.43f),
         style = Stroke(width = size * if (prominent) 0.17f else 0.12f, cap = StrokeCap.Round),
     )
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFocusedYantraRing(
+    focused: AnnotationKind,
+    state: YantraState,
+    sigilImages: SigilImages,
+    monthNameSet: MonthNameSet,
+    lunarEmphasis: Boolean,
+    radius: Float,
+    width: Float,
+    inactive: Color,
+    active: Color,
+    rashiActiveColor: Color,
+) {
+    drawCircle(Color(0xFF050302).copy(alpha = 0.54f), radius + width * 0.72f)
+    drawCircle(active.copy(alpha = 0.22f), radius + width * 0.53f, style = Stroke(width = width * 0.08f))
+    when (focused) {
+        AnnotationKind.Tithi -> drawTithiRing(
+            activeIndex = state.tithi.index,
+            radius = radius,
+            width = width,
+            inactive = inactive,
+            active = active,
+        )
+        AnnotationKind.Nakshatra -> {
+            drawRing(27, state.nakshatra.index, radius, width, inactive, active.copy(alpha = 0.36f))
+            drawNakshatraSigilRing(
+                activeIndex = state.nakshatra.index,
+                radius = radius,
+                iconSize = width * 0.92f,
+                inactive = inactive.copy(alpha = 0.8f),
+                active = active.copy(alpha = 0.98f),
+                images = sigilImages,
+            )
+        }
+        AnnotationKind.Masa -> drawMonthRing(
+            sectors = localizedMonthSectors(state.monthSectors, monthNameSet),
+            activeIndex = state.month.index,
+            radius = radius,
+            width = width,
+            inactive = inactive,
+            active = active,
+        )
+        AnnotationKind.Rashi -> {
+            drawLagnaRashiRing(
+                sectors = state.lagnaSectors,
+                activeLagnaIndex = state.lagnaRashi?.index,
+                dayFraction = state.lagnaDayFraction,
+                radius = radius,
+                width = width,
+                inactive = inactive,
+                activeLagna = active,
+            )
+            drawRashiSigilRing(
+                activeIndex = if (lunarEmphasis) state.lunarRashi.index else state.solarRashi.index,
+                lagnaIndex = state.lagnaRashi?.index,
+                sectors = state.lagnaSectors,
+                radius = radius,
+                iconSize = width * 0.9f,
+                trackWidth = width,
+                inactive = inactive.copy(alpha = 0.82f),
+                active = rashiActiveColor,
+            )
+        }
+    }
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPocketWatchBody(
@@ -2149,6 +2240,8 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircumferenceLa
     ringWidth: Float,
     dateLabel: String,
     yearLabel: String,
+    yearIndex: Int,
+    showYearFlow: Boolean,
     gold: Color,
 ) {
     val topRadius = instrumentRadius * 1.20f
@@ -2157,12 +2250,35 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircumferenceLa
     withTransform({
         translate(left = center.x - canvasCenter.x, top = center.y - canvasCenter.y)
     }) {
+        if (showYearFlow) {
+            val previous = CalendarCatalog.samvatsaras[Math.floorMod(yearIndex - 1, CalendarCatalog.samvatsaras.size)].name.uppercase()
+            val next = CalendarCatalog.samvatsaras[Math.floorMod(yearIndex + 1, CalendarCatalog.samvatsaras.size)].name.uppercase()
+            drawCurvedCenterLabel(
+                label = previous,
+                radius = topRadius,
+                centerAngle = -131f,
+                sweep = 42f,
+                textSize = ringWidth * 0.53f,
+                color = gold.copy(alpha = 0.34f),
+                bold = false,
+            )
+            drawCurvedCenterLabel(
+                label = next,
+                radius = topRadius,
+                centerAngle = -49f,
+                sweep = 42f,
+                textSize = ringWidth * 0.53f,
+                color = gold.copy(alpha = 0.34f),
+                bold = false,
+            )
+            drawTimeFlowArrow(topRadius, ringWidth, gold.copy(alpha = 0.5f))
+        }
         drawCurvedCenterLabel(
             label = yearLabel,
             radius = topRadius,
             centerAngle = -90f,
-            sweep = 74f,
-            textSize = ringWidth * 0.58f * 1.5f,
+            sweep = if (showYearFlow) 58f else 74f,
+            textSize = ringWidth * if (showYearFlow) 0.78f else 0.58f * 1.5f,
             color = gold.copy(alpha = 0.94f),
             bold = true,
         )
@@ -2176,6 +2292,30 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCircumferenceLa
             bold = true,
         )
     }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTimeFlowArrow(
+    radius: Float,
+    ringWidth: Float,
+    color: Color,
+) {
+    val rect = Rect(center.x - radius, center.y - radius, center.x + radius, center.y + radius)
+    drawArc(
+        color = color,
+        startAngle = -119f,
+        sweepAngle = 58f,
+        useCenter = false,
+        topLeft = rect.topLeft,
+        size = Size(rect.width, rect.height),
+        style = Stroke(width = ringWidth * 0.055f, cap = StrokeCap.Round),
+    )
+    val tipAngle = Math.toRadians(-61.0).toFloat()
+    val tip = center.polar(tipAngle, radius)
+    val tangent = tipAngle + Math.PI.toFloat() / 2f
+    val left = tip.polar(tangent + 2.62f, ringWidth * 0.26f)
+    val right = tip.polar(tangent - 2.62f, ringWidth * 0.26f)
+    drawLine(color, tip, left, strokeWidth = ringWidth * 0.055f, cap = StrokeCap.Round)
+    drawLine(color, tip, right, strokeWidth = ringWidth * 0.055f, cap = StrokeCap.Round)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawFestivalLotus(
