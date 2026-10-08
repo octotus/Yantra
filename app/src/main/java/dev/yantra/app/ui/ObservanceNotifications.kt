@@ -108,13 +108,20 @@ private fun engine(context: Context): YantraCalendarEngine {
     )
 }
 
-private fun observance(context: Context, state: YantraState, previous: YantraState): Pair<String, String>? {
-    loadSpecialDays(context).firstOrNull { it.matches(state) }?.let { return it.name to "special:${it.name}" }
-    loadUserEvents(context).firstOrNull { it.matches(state) }?.let { return it.name to "user:${it.identityKey()}" }
-    val tithiNumber = (state.tithi.index % 15) + 1
-    if (state.paksha == "Krishna" && tithiNumber == 15) return "Amavasya" to "amavasya:${state.lunarMonth}"
-    FestivalCatalog.match(state, previous)?.takeIf { it.rank == FestivalRank.Major }?.let { return it.name to "festival:${it.name}" }
-    return null
+private fun observances(
+    state: YantraState,
+    previous: YantraState,
+    specialDays: List<SpecialDay>,
+    userEvents: List<UserEvent>,
+): List<Pair<String, String>> = buildList {
+    specialDays.filter { it.matches(state) }.forEach {
+        add(it.name to "special:${it.name}:${it.month}:${it.paksha}:${it.tithiNumber}")
+    }
+    userEvents.filter { it.matches(state) }.forEach { add(it.name to "user:${it.identityKey()}") }
+    if (state.tithi.index == 29) add("Amavasya" to "amavasya:${state.lunarMonth}")
+    FestivalCatalog.match(state, previous)?.takeIf { it.rank == FestivalRank.Major }?.let {
+        add(it.name to "festival:${it.name}")
+    }
 }
 
 class ObservanceNotificationReceiver : BroadcastReceiver() {
@@ -135,55 +142,82 @@ class ObservanceNotificationReceiver : BroadcastReceiver() {
     private fun deliverNotification(context: Context) {
         val observerLocation = loadObserverLocation(context)
         val calendar = engine(context)
-        val today = ZonedDateTime.now(observerLocation.zoneId).toLocalDate()
-        context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit()
-            .putString(LAST_CHECK_DATE_KEY, today.toString())
-            .apply()
-        val dayStart = today.atStartOfDay(observerLocation.zoneId)
-        val occurrence = (0..47).firstNotNullOfOrNull { halfHour ->
-            val at = dayStart.plusMinutes(halfHour * 30L)
-            val state = calendar.compute(at, observerLocation.observer)
-            val previous = calendar.compute(at.minusHours(6), observerLocation.observer)
-            observance(context, state, previous)?.let { ObservanceOccurrence(it.first, it.second, at) }
+        val now = ZonedDateTime.now(observerLocation.zoneId)
+        val today = now.toLocalDate()
+        val specialDays = loadSpecialDays(context)
+        val userEvents = loadUserEvents(context)
+        val lines = mutableListOf<String>()
+        var expires = now
+        for (dayOffset in 0L..1L) {
+            val date = today.plusDays(dayOffset)
+            val dayStart = date.atStartOfDay(observerLocation.zoneId)
+            val dayEnd = date.plusDays(1).atStartOfDay(observerLocation.zoneId)
+            val occurrences = linkedMapOf<String, ObservanceOccurrence>()
+            var at = dayStart
+            while (at.isBefore(dayEnd)) {
+                val state = calendar.compute(at, observerLocation.observer)
+                val previous = calendar.compute(at.minusHours(6), observerLocation.observer)
+                observances(state, previous, specialDays, userEvents).forEach { (label, key) ->
+                    occurrences.putIfAbsent(key, ObservanceOccurrence(label, key, at))
+                }
+                at = at.plusMinutes(30)
+            }
+            for (occurrence in occurrences.values) {
+                val end = if (dayOffset == 0L) {
+                    findEnd(calendar, observerLocation, occurrence, specialDays, userEvents)
+                } else dayStart
+                // Do not remind about an observance that already ended earlier today.
+                if (!end.isAfter(now)) continue
+                lines += "${if (dayOffset == 0L) "Today" else "Tomorrow"}: ${occurrence.label}"
+                if (end.isAfter(expires)) expires = end
+            }
         }
-        if (occurrence != null && canNotify(context)) {
-            val end = findEnd(context, calendar, observerLocation, occurrence)
+        // Relative labels must not survive into the next local calendar day.
+        val nextMidnight = today.plusDays(1).atStartOfDay(observerLocation.zoneId)
+        if (expires.isAfter(nextMidnight)) expires = nextMidnight
+        if (lines.isNotEmpty() && canNotify(context)) {
             val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentTitle(occurrence.label)
-                .setContentText("Today in ${observerLocation.label}")
+                .setContentTitle("Yantra · ${observerLocation.label}")
+                .setContentText(lines.distinct().joinToString(" · "))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(lines.distinct().joinToString("\n")))
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
                 .setContentIntent(open)
                 .setAutoCancel(true)
-                .setTimeoutAfter((end.toInstant().toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(60_000L))
+                .setTimeoutAfter((expires.toInstant().toEpochMilli() - System.currentTimeMillis()).coerceAtLeast(60_000L))
                 .build()
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-            scheduleCancellation(context, end)
+            scheduleCancellation(context, expires)
+        } else {
+            NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
         }
+        context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit()
+            .putString(LAST_CHECK_DATE_KEY, today.toString())
+            .apply()
     }
 
-    private fun findEnd(context: Context, calendar: YantraCalendarEngine, location: ObserverLocation, occurrence: ObservanceOccurrence): ZonedDateTime {
+    private fun findEnd(calendar: YantraCalendarEngine, location: ObserverLocation, occurrence: ObservanceOccurrence, specialDays: List<SpecialDay>, userEvents: List<UserEvent>): ZonedDateTime {
         var cursor = occurrence.at
         val limit = cursor.plusDays(2)
         while (cursor.isBefore(limit)) {
             cursor = cursor.plusMinutes(10)
             val state = calendar.compute(cursor, location.observer)
             val previous = calendar.compute(cursor.minusHours(6), location.observer)
-            if (observance(context, state, previous)?.second != occurrence.key) return refineEnd(context, calendar, location, occurrence, cursor.minusMinutes(10), cursor)
+            if (observances(state, previous, specialDays, userEvents).none { it.second == occurrence.key }) return refineEnd(calendar, location, occurrence, cursor.minusMinutes(10), cursor, specialDays, userEvents)
         }
         return occurrence.at.toLocalDate().plusDays(1).atStartOfDay(location.zoneId)
     }
 
-    private fun refineEnd(context: Context, calendar: YantraCalendarEngine, location: ObserverLocation, occurrence: ObservanceOccurrence, start: ZonedDateTime, end: ZonedDateTime): ZonedDateTime {
+    private fun refineEnd(calendar: YantraCalendarEngine, location: ObserverLocation, occurrence: ObservanceOccurrence, start: ZonedDateTime, end: ZonedDateTime, specialDays: List<SpecialDay>, userEvents: List<UserEvent>): ZonedDateTime {
         var low = start
         var high = end
         while (java.time.Duration.between(low, high).toMinutes() > 1) {
             val middle = low.plusSeconds(java.time.Duration.between(low, high).seconds / 2)
             val state = calendar.compute(middle, location.observer)
             val previous = calendar.compute(middle.minusHours(6), location.observer)
-            if (observance(context, state, previous)?.second == occurrence.key) low = middle else high = middle
+            if (observances(state, previous, specialDays, userEvents).any { it.second == occurrence.key }) low = middle else high = middle
         }
         return high
     }

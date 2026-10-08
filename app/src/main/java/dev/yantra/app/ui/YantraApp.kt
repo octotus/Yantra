@@ -152,6 +152,7 @@ fun YantraApp() {
     var settingsOpen by remember { mutableStateOf(false) }
     var specialDayEditorOpen by remember { mutableStateOf(false) }
     var daysScreenOpen by remember { mutableStateOf(false) }
+    var todayOpen by remember { mutableStateOf(false) }
     var finderOpen by remember { mutableStateOf(false) }
     var observanceDetailsOpen by remember { mutableStateOf(false) }
     var festivalLabelVisible by remember { mutableStateOf(false) }
@@ -182,6 +183,10 @@ fun YantraApp() {
         }
     }
 
+    LaunchedEffect(engine, specialDays, userEvents) {
+        ObservanceNotificationScheduler.reschedule(context)
+    }
+
     LaunchedEffect(lunarEmphasis) {
         if (lunarEmphasis) {
             delay(5_000)
@@ -196,8 +201,9 @@ fun YantraApp() {
         }
     }
 
-    BackHandler(enabled = celestialDetail != null || datePickerOpen || settingsOpen || daysScreenOpen || finderOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
+    BackHandler(enabled = todayOpen || celestialDetail != null || datePickerOpen || settingsOpen || daysScreenOpen || finderOpen || observanceDetailsOpen || specialDayEditorOpen || annotation != null || datePreviewActive) {
         when {
+            todayOpen -> todayOpen = false
             celestialDetail != null -> celestialDetail = null
             datePickerOpen -> datePickerOpen = false
             settingsOpen -> settingsOpen = false
@@ -277,6 +283,10 @@ fun YantraApp() {
                         },
                         onAnnotationDismiss = { annotation = null },
                     )
+                    TodayOrb(
+                        onClick = { todayOpen = true },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 36.dp, end = 16.dp),
+                    )
                     celestialDetail?.let { detail ->
                         AstronomicalDetailScreen(
                             annotation = detail,
@@ -293,6 +303,11 @@ fun YantraApp() {
                                 celestialDetail = null
                             },
                         )
+                    }
+                    if (todayOpen) {
+                        TodayScreen(engine, observerLocation, monthNameSet, ayanamsa, specialDays, userEvents) {
+                            todayOpen = false
+                        }
                     }
                     if (finderOpen) {
                         YantraFinderScreen(
@@ -409,7 +424,7 @@ fun YantraApp() {
                         androidx.compose.material3.AlertDialog(
                             onDismissRequest = { notificationExplanationOpen = false },
                             title = { androidx.compose.material3.Text("Quiet important-day reminders") },
-                            text = { androidx.compose.material3.Text("Yantra places a quiet symbol in the status bar on important festival days, user days, and Amavasya. It makes no sound or vibration and expires when the event ends. Schedules stay on this device.") },
+                            text = { androidx.compose.material3.Text("Yantra sends quiet reminders one day before and on important festival days, special days, user days, and Amavasya. Reminders are checked around 6 AM in your selected location’s time zone. No sound or vibration. Schedules stay on this device.") },
                             confirmButton = {
                                 androidx.compose.material3.TextButton(onClick = {
                                     notificationExplanationOpen = false
@@ -494,7 +509,7 @@ private fun observanceOnDate(
         ?: states.firstNotNullOfOrNull(::recurringObservanceName)
 }
 
-private fun recurringObservanceName(state: YantraState): String? = when (state.tithi.index) {
+internal fun recurringObservanceName(state: YantraState): String? = when (state.tithi.index) {
     29 -> "Amavasya"
     14 -> "Purnima"
     10, 25 -> "Ekadashi"
@@ -801,7 +816,7 @@ private fun YantraSettingsScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Important-day notifications", color = ivory)
-                    Text("Quiet status-bar reminders; no sound or vibration. Amavasya is included.", color = ivory.copy(alpha = 0.68f))
+                    Text("One day before and on the day, around 6 AM. Quiet reminders, including Amavasya.", color = ivory.copy(alpha = 0.68f))
                 }
                 Switch(
                     checked = notificationsEnabled,
