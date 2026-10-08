@@ -109,6 +109,25 @@ internal fun CelestialChart(
                     label(if (kind == AnnotationKind.Rashi) "30°" else "13°20′", p + Offset(0f, 25 * density), ChartGold)
                 }
             }
+            if (kind == AnnotationKind.Rashi) {
+                val selectedPoints = selectedIds.mapNotNull(positions::get).filter(::visible)
+                if (selectedPoints.isNotEmpty()) {
+                    val minX = selectedPoints.minOf { it.x }
+                    val maxX = selectedPoints.maxOf { it.x }
+                    val minY = selectedPoints.minOf { it.y }
+                    val maxY = selectedPoints.maxOf { it.y }
+                    val figureCenter = Offset((minX + maxX) / 2f, (minY + maxY) / 2f)
+                    val figureSize = max(maxX - minX, maxY - minY)
+                        .coerceIn(size.minDimension * 0.34f, size.minDimension * 0.72f)
+                    drawZodiacFigureOutline(
+                        index = index,
+                        center = figureCenter,
+                        size = figureSize,
+                        color = ChartGold.copy(alpha = 0.38f),
+                        strokeWidth = 1.2f * density,
+                    )
+                }
+            }
             patternIds.forEach { id ->
                 val star = catalog.byId.getValue(id)
                 positions[id]?.takeIf { visible(it) }?.let { at ->
@@ -143,23 +162,6 @@ internal fun CelestialChart(
                     val name = if (patternKind == "rashi") CalendarCatalog.rashis[pattern.index].name else CalendarCatalog.nakshatras[pattern.index].name
                     label(name, p + Offset(0f, -23 * density), if (pattern.index == index) ChartGold else ChartGrey)
                 }
-            }
-            if (kind == AnnotationKind.Rashi) {
-                val badgeRadius = 34f * density
-                val badgeCenter = Offset(size.width - badgeRadius - 12f * density, badgeRadius + 12f * density)
-                drawCircle(Color.Black.copy(alpha = 0.88f), badgeRadius, badgeCenter)
-                drawCircle(
-                    ChartGold.copy(alpha = 0.78f),
-                    badgeRadius,
-                    badgeCenter,
-                    style = Stroke(1.2f * density),
-                )
-                drawRashiSigil(
-                    index = index,
-                    center = badgeCenter,
-                    size = badgeRadius * 1.25f,
-                    color = ChartGold,
-                )
             }
             tappedStar?.let { id -> positions[id]?.takeIf { visible(it) }?.let { p ->
                 drawCircle(Color.White, 6 * density, p, style = Stroke(density))
