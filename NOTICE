@@ -32,10 +32,11 @@ Yantra.
 See third_party/swisseph/LICENSE and https://www.astro.com/swisseph/ for the
 upstream Swiss Ephemeris license notice.
 
-Celestial chart data
---------------------
+Celestial chart data and artwork
+--------------------------------
 The app also bundles XHIP-derived stars from Olaf Frohn's d3-celestial project
-(BSD 3-Clause) and adapted Stellarium sky-culture patterns (CC BY-SA).
+(BSD 3-Clause), adapted Stellarium sky-culture patterns (CC BY-SA), and derived
+zodiac illustration outlines by Johan Meuris (Free Art License 1.3).
 See app/src/main/assets/licenses/CELESTIAL-DATA-NOTICE.txt for authors, source
 links and modifications, and D3-CELESTIAL-BSD.txt in the same directory for the
 full BSD license. These data retain their respective licenses.
