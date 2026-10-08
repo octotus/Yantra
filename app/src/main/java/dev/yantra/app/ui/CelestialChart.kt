@@ -144,6 +144,23 @@ internal fun CelestialChart(
                     label(name, p + Offset(0f, -23 * density), if (pattern.index == index) ChartGold else ChartGrey)
                 }
             }
+            if (kind == AnnotationKind.Rashi) {
+                val badgeRadius = 34f * density
+                val badgeCenter = Offset(size.width - badgeRadius - 12f * density, badgeRadius + 12f * density)
+                drawCircle(Color.Black.copy(alpha = 0.88f), badgeRadius, badgeCenter)
+                drawCircle(
+                    ChartGold.copy(alpha = 0.78f),
+                    badgeRadius,
+                    badgeCenter,
+                    style = Stroke(1.2f * density),
+                )
+                drawRashiSigil(
+                    index = index,
+                    center = badgeCenter,
+                    size = badgeRadius * 1.25f,
+                    color = ChartGold,
+                )
+            }
             tappedStar?.let { id -> positions[id]?.takeIf { visible(it) }?.let { p ->
                 drawCircle(Color.White, 6 * density, p, style = Stroke(density))
                 label("HIP $id", p + Offset(0f, 22 * density), Color.White)

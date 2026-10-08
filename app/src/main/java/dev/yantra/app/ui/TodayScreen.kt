@@ -30,8 +30,11 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.Duration
 
-private val todayGold = Color(0xFFE8CA8B)
-private val todayIvory = Color(0xFFFFE8B0)
+private val todayGold = Color(0xFFFFD978)
+private val todayIvory = Color(0xFFFFF3D0)
+private val todayBackground = Color(0xFF080604)
+private val todayPanelDark = Color(0xFF100B07)
+private val todayPanelLight = Color(0xFF24180C)
 
 @Composable
 internal fun TodayOrb(onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -104,10 +107,10 @@ internal fun TodayScreen(
             delay(60_000)
         }
     }
-    Surface(Modifier.fillMaxSize(), color = Color(0xFF100C08)) {
+    Surface(Modifier.fillMaxSize(), color = todayBackground) {
         Column(
             Modifier.fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color(0xFF292014), Color(0xFF100C08), Color(0xFF17100A))))
+                .background(Brush.verticalGradient(listOf(Color(0xFF151008), todayBackground, Color(0xFF0C0805))))
                 .safeDrawingPadding().verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -126,7 +129,7 @@ internal fun TodayScreen(
                             fontSize = MaterialTheme.typography.headlineMedium.fontSize * 0.8f,
                             lineHeight = MaterialTheme.typography.headlineMedium.lineHeight * 0.8f,
                         ))
-                    HorizontalDivider(color = todayGold.copy(alpha = 0.25f))
+                    HorizontalDivider(color = todayGold.copy(alpha = 0.55f))
                     Text("${data.state.samvatsara.name} samvatsara", color = todayGold,
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
                     Text("${monthNames.monthNames[data.state.month.index]} māsa · ${data.state.paksha} paksha",
@@ -136,7 +139,7 @@ internal fun TodayScreen(
                     TodayInterval(data.tithi)
                 }
                 TodaySection("Observances") {
-                    if (data.observances.isEmpty()) Text("No special observances today", color = todayIvory.copy(alpha = 0.7f))
+                    if (data.observances.isEmpty()) Text("No special observances today", color = todayIvory.copy(alpha = 0.86f))
                     data.observances.forEach { label ->
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("✦", color = todayGold)
@@ -156,13 +159,14 @@ internal fun TodayScreen(
                             selectedRashi = RashiFocus.Lagna to data
                         }
                     }
-                    Text("Tap a sign for its chart and duration", color = todayGold.copy(alpha = 0.7f),
+                    Text("Tap a sign for its chart and duration", color = todayGold.copy(alpha = 0.88f),
                         style = MaterialTheme.typography.bodySmall)
                 }
                 TodaySection {
                     Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Canvas(Modifier.size(52.dp).background(Color(0xFF302314), CircleShape)) {
+                        Canvas(Modifier.size(52.dp).background(todayBackground, CircleShape)
+                            .border(1.dp, todayGold.copy(alpha = 0.55f), CircleShape)) {
                             drawNakshatraSigil(data.state.nakshatra.index, center, size.minDimension * 0.68f, todayGold, sigilImages)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -177,7 +181,7 @@ internal fun TodayScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(details?.let { "${location.label} · ${it.at.format(DateTimeFormatter.ofPattern("HH:mm z"))}" }
                     ?: location.label, Modifier.weight(1f),
-                    color = todayGold.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall)
+                    color = todayGold.copy(alpha = 0.82f), style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = onDismiss) { Text("‹ Back", color = todayGold) }
             }
         }
@@ -212,8 +216,8 @@ private fun TodaySection(
 ) {
     Column(
         Modifier.fillMaxWidth()
-            .background(Brush.linearGradient(listOf(Color(0xFF352719), Color(0xFF1C140D))), MaterialTheme.shapes.large)
-            .border(1.dp, todayGold.copy(alpha = 0.24f), MaterialTheme.shapes.large).padding(inset),
+            .background(Brush.linearGradient(listOf(todayPanelLight, todayPanelDark)), MaterialTheme.shapes.large)
+            .border(1.dp, todayGold.copy(alpha = 0.48f), MaterialTheme.shapes.large).padding(inset),
         verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
         title?.let { Text(it, color = todayGold, fontFamily = FontFamily.Serif,
@@ -226,7 +230,8 @@ private fun TodaySection(
 private fun RashiTile(label: String, sign: Segment?, modifier: Modifier, onClick: () -> Unit) {
     Column(
         modifier.clip(MaterialTheme.shapes.medium)
-            .background(Color(0xFF100C08).copy(alpha = 0.45f))
+            .background(todayBackground.copy(alpha = 0.92f))
+            .border(1.dp, todayGold.copy(alpha = 0.32f), MaterialTheme.shapes.medium)
             .clickable(enabled = sign != null, role = Role.Button,
                 onClickLabel = "View $label rashi chart and duration", onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 6.dp),
@@ -259,7 +264,7 @@ private fun TodayInterval(interval: Pair<ZonedDateTime, ZonedDateTime>?) {
         val minutes = Duration.between(interval.first, interval.second).toMinutes()
         Text("${interval.first.format(format)} – ${interval.second.format(format)}",
             color = todayGold, style = MaterialTheme.typography.bodySmall)
-        Text("Duration · ${minutes / 60}h ${minutes % 60}m", color = todayIvory.copy(alpha = 0.7f),
+        Text("Duration · ${minutes / 60}h ${minutes % 60}m", color = todayIvory.copy(alpha = 0.86f),
             style = MaterialTheme.typography.bodySmall)
     }
 }
