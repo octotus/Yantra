@@ -190,7 +190,8 @@ private fun DrawScope.drawAnchoredZodiacArtwork(
     val targetPoints = targets.flatMap { listOf(it.x, it.y) }.toFloatArray()
     val matrix = Matrix()
     if (!matrix.setPolyToPoly(sourcePoints, 0, targetPoints, 0, 3)) return
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { alpha = 190 }
+    // Keep the figurative outline subordinate to the actual constellation lines.
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { alpha = 76 }
     drawContext.canvas.nativeCanvas.drawBitmap(image.asAndroidBitmap(), matrix, paint)
 }
 
