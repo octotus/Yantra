@@ -285,7 +285,7 @@ fun YantraApp() {
                     )
                     TodayOrb(
                         onClick = { todayOpen = true },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 36.dp, end = 16.dp),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(top = 84.dp, end = 16.dp),
                     )
                     celestialDetail?.let { detail ->
                         AstronomicalDetailScreen(
@@ -305,9 +305,21 @@ fun YantraApp() {
                         )
                     }
                     if (todayOpen) {
-                        TodayScreen(engine, observerLocation, monthNameSet, ayanamsa, specialDays, userEvents) {
-                            todayOpen = false
-                        }
+                        TodayScreen(
+                            engine = engine,
+                            location = observerLocation,
+                            monthNames = monthNameSet,
+                            ayanamsa = ayanamsa,
+                            sigilImages = sigilImages,
+                            specialDays = specialDays,
+                            userEvents = userEvents,
+                            onDismiss = { todayOpen = false },
+                            onShowDate = { selected ->
+                                now = selected
+                                datePreviewActive = true
+                                todayOpen = false
+                            },
+                        )
                     }
                     if (finderOpen) {
                         YantraFinderScreen(

@@ -1,5 +1,6 @@
 package dev.yantra.app.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +17,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import dev.yantra.app.calendar.*
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import kotlin.math.roundToInt
+import java.time.Duration
 
 private val todayGold = Color(0xFFE8CA8B)
 private val todayIvory = Color(0xFFFFE8B0)
@@ -60,11 +64,14 @@ internal fun TodayScreen(
     location: ObserverLocation,
     monthNames: MonthNameSet,
     ayanamsa: Ayanamsa,
+    sigilImages: SigilImages,
     specialDays: List<SpecialDay>,
     userEvents: List<UserEvent>,
     onDismiss: () -> Unit,
+    onShowDate: (ZonedDateTime) -> Unit,
 ) {
     var details by remember(engine, location) { mutableStateOf<TodayDetails?>(null) }
+    var selectedRashi by remember { mutableStateOf<Pair<RashiFocus, TodayDetails>?>(null) }
     var failed by remember { mutableStateOf(false) }
     LaunchedEffect(engine, location, specialDays, userEvents) {
         val calendar = engine.fork()
@@ -97,68 +104,151 @@ internal fun TodayScreen(
         }
     }
     Surface(Modifier.fillMaxSize(), color = Color(0xFF100C08)) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(
+            Modifier.fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color(0xFF292014), Color(0xFF100C08), Color(0xFF17100A))))
+                .safeDrawingPadding().verticalScroll(rememberScrollState()).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("Today", color = todayGold, style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = onDismiss) { Text("Back", color = todayGold) }
+                Text("Today", color = todayGold, fontFamily = FontFamily.Serif,
+                    style = MaterialTheme.typography.headlineMedium)
+                TextButton(onClick = onDismiss) { Text("‹ Back", color = todayGold) }
             }
-            Text(location.label + " · " + location.zoneId.id, color = todayGold)
             val data = details
             if (data == null) {
                 if (failed) Text("Today's details could not be calculated. Retrying shortly.", color = todayIvory)
                 else CircularProgressIndicator(color = todayGold)
             } else {
-                Text(data.at.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")),
-                    color = todayIvory, style = MaterialTheme.typography.titleLarge)
-                Text("Current at " + data.at.format(DateTimeFormatter.ofPattern("HH:mm z")), color = todayGold)
-                TodaySection("Observances") {
-                    Text(data.observances.joinToString("\n").ifEmpty { "No special observances today" }, color = todayIvory)
-                }
-                TodaySection("Calendar") {
-                    TodayValue("Samvatsara", data.state.samvatsara.name)
-                    TodayValue("Lunar month", monthNames.monthNames[data.state.month.index])
-                    TodayValue("Reckoning", data.state.monthReckoning.displayName)
-                    TodayValue("Paksha", data.state.paksha)
-                    TodayValue("Tithi", data.state.tithi.name)
+                TodaySection {
+                    Text(data.at.format(DateTimeFormatter.ofPattern("EEEE")), color = todayGold,
+                        letterSpacing = 2.sp, style = MaterialTheme.typography.labelLarge)
+                    Text(data.at.format(DateTimeFormatter.ofPattern("d MMMM yyyy")),
+                        color = todayIvory, fontFamily = FontFamily.Serif,
+                        style = MaterialTheme.typography.headlineMedium)
+                    HorizontalDivider(color = todayGold.copy(alpha = 0.25f))
+                    Text("${data.state.samvatsara.name} samvatsara", color = todayGold,
+                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
+                    Text("${monthNames.monthNames[data.state.month.index]} māsa · ${data.state.paksha} paksha",
+                        color = todayIvory, style = MaterialTheme.typography.bodyLarge)
+                    Text(tithiName(data.state.tithi.index), color = todayIvory,
+                        fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
                     TodayInterval(data.tithi)
-                    TodayValue("Nakshatra", data.state.nakshatra.name)
+                }
+                TodaySection("Observances") {
+                    if (data.observances.isEmpty()) Text("No special observances today", color = todayIvory.copy(alpha = 0.7f))
+                    data.observances.forEach { label ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("✦", color = todayGold)
+                            Text(label, color = todayIvory, style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
+                TodaySection("Rāśi") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        RashiTile("Solar", data.state.solarRashi, Modifier.weight(1f)) {
+                            selectedRashi = RashiFocus.Solar to data
+                        }
+                        RashiTile("Lunar", data.state.lunarRashi, Modifier.weight(1f)) {
+                            selectedRashi = RashiFocus.Lunar to data
+                        }
+                        RashiTile("Lagna", data.state.lagnaRashi, Modifier.weight(1f)) {
+                            selectedRashi = RashiFocus.Lagna to data
+                        }
+                    }
+                    Text("Touch a sign to explore its chart and duration", color = todayGold.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                TodaySection("Nakṣatra") {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Canvas(Modifier.size(72.dp).background(Color(0xFF302314), CircleShape)) {
+                            drawNakshatraSigil(data.state.nakshatra.index, center, size.minDimension * 0.68f, todayGold, sigilImages)
+                        }
+                        Text(data.state.nakshatra.name, Modifier.weight(1f), color = todayIvory,
+                            fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall)
+                    }
                     TodayInterval(data.nakshatra)
-                    TodayValue("Yoga", data.state.yoga.name)
                 }
-                TodaySection("Sky now") {
-                    TodayValue("Solar rashi", data.state.solarRashi.name)
-                    TodayValue("Lunar rashi", data.state.lunarRashi.name)
-                    TodayValue("Lagna", data.state.lagnaRashi?.name ?: "Unavailable")
-                    TodayValue("Moon illumination", "${(data.state.moonIllumination * 100).roundToInt()}%")
-                    TodayValue("Ayanamsa", ayanamsa.displayName)
-                }
+                Text("${location.label} · ${data.at.format(DateTimeFormatter.ofPattern("HH:mm z"))}",
+                    color = todayGold.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+    selectedRashi?.let { (focus, selected) ->
+        val sign = when (focus) {
+            RashiFocus.Solar -> selected.state.solarRashi
+            RashiFocus.Lunar -> selected.state.lunarRashi
+            RashiFocus.Lagna -> selected.state.lagnaRashi
+        }
+        if (sign != null) AstronomicalDetailScreen(
+            annotation = YantraAnnotation(AnnotationKind.Rashi, sign.index, sign.name),
+            reference = selected.at,
+            calendarEngine = engine,
+            observer = location.observer,
+            monthNames = monthNames,
+            reckoning = selected.state.monthReckoning,
+            ayanamsa = ayanamsa,
+            rashiFocus = focus,
+            onDismiss = { selectedRashi = null },
+            onShowDate = onShowDate,
+        )
     }
 }
 
 @Composable
-private fun TodaySection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().background(Color(0xFF21180E), MaterialTheme.shapes.medium).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, color = todayGold, style = MaterialTheme.typography.titleMedium)
+private fun TodaySection(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Brush.linearGradient(listOf(Color(0xFF352719), Color(0xFF1C140D))), MaterialTheme.shapes.large)
+            .border(1.dp, todayGold.copy(alpha = 0.24f), MaterialTheme.shapes.large).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        title?.let { Text(it, color = todayGold, fontFamily = FontFamily.Serif,
+            style = MaterialTheme.typography.titleLarge) }
         content()
     }
 }
 
 @Composable
-private fun TodayValue(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(label, Modifier.weight(1f), color = todayGold)
-        Text(value, Modifier.weight(1f), color = todayIvory)
+private fun RashiTile(label: String, sign: Segment?, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.clip(MaterialTheme.shapes.medium)
+            .background(Color(0xFF100C08).copy(alpha = 0.45f))
+            .clickable(enabled = sign != null, role = Role.Button,
+                onClickLabel = "View $label rashi chart and duration", onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(label, color = todayGold, style = MaterialTheme.typography.labelLarge)
+        Text(sign?.let { zodiacSymbols[it.index] } ?: "—", color = todayGold,
+            fontSize = 38.sp, textAlign = TextAlign.Center)
+        Text(sign?.name ?: "Unavailable", color = todayIvory, textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium)
     }
+}
+
+private val zodiacSymbols = listOf("♈︎", "♉︎", "♊︎", "♋︎", "♌︎", "♍︎", "♎︎", "♏︎", "♐︎", "♑︎", "♒︎", "♓︎")
+private val tithiNames = listOf("Pratipada", "Dvitiya", "Tritiya", "Chaturthi", "Panchami", "Shashthi",
+    "Saptami", "Ashtami", "Navami", "Dashami", "Ekadashi", "Dvadashi", "Trayodashi", "Chaturdashi")
+private fun tithiName(index: Int): String = when (index) {
+    14 -> "Purnima"
+    29 -> "Amavasya"
+    else -> tithiNames[index % 15]
 }
 
 @Composable
 private fun TodayInterval(interval: Pair<ZonedDateTime, ZonedDateTime>?) {
     val format = DateTimeFormatter.ofPattern("d MMM, HH:mm z")
-    Text(interval?.let { "${it.first.format(format)} – ${it.second.format(format)}" }
-        ?: "Timing unavailable", color = todayGold, style = MaterialTheme.typography.bodySmall)
+    if (interval == null) {
+        Text("Timing unavailable", color = todayGold, style = MaterialTheme.typography.bodySmall)
+    } else {
+        val minutes = Duration.between(interval.first, interval.second).toMinutes()
+        Text("${interval.first.format(format)} – ${interval.second.format(format)}",
+            color = todayGold, style = MaterialTheme.typography.bodySmall)
+        Text("Duration · ${minutes / 60}h ${minutes % 60}m", color = todayIvory.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.bodySmall)
+    }
 }

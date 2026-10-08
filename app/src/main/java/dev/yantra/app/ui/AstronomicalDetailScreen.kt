@@ -25,6 +25,8 @@ import java.time.Duration
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
+internal enum class RashiFocus(val label: String) { Solar("Surya"), Lunar("Chandra"), Lagna("Lagna") }
+
 private val DetailGold = Color(0xFFE8C477)
 private val DetailIvory = Color(0xFFE7E5DD)
 private val DetailMuted = Color(0xFF9BA2A8)
@@ -52,6 +54,7 @@ internal fun AstronomicalDetailScreen(
     ayanamsa: Ayanamsa,
     onDismiss: () -> Unit,
     onShowDate: (ZonedDateTime) -> Unit,
+    rashiFocus: RashiFocus = RashiFocus.Solar,
 ) {
     val context = LocalContext.current
     val engine = remember(calendarEngine) { calendarEngine.fork() }
@@ -65,7 +68,7 @@ internal fun AstronomicalDetailScreen(
     var retry by remember { mutableStateOf(0) }
     BackHandler(onBack = onDismiss)
 
-    LaunchedEffect(kind, index, requestedTime, engine, retry) {
+    LaunchedEffect(kind, index, requestedTime, engine, retry, rashiFocus) {
         loading = true
         failure = null
         val result = withContext(Dispatchers.Default) {
@@ -84,13 +87,24 @@ internal fun AstronomicalDetailScreen(
                 val snapshot = engine.chartSnapshot(at)
                     ?: error("The offline ephemeris could not calculate this chart.")
                 val interval = when (kind) {
-                    AnnotationKind.Rashi -> engine.rashiInterval(at, observer, index, solar = true)
+                    AnnotationKind.Rashi -> when (rashiFocus) {
+                        RashiFocus.Solar -> engine.rashiInterval(at, observer, index, solar = true)
+                        RashiFocus.Lunar -> engine.rashiInterval(at, observer, index, solar = false)
+                        RashiFocus.Lagna -> engine.lagnaInterval(at, observer, index)
+                    }
                     AnnotationKind.Nakshatra -> engine.nakshatraInterval(at, observer, index)
                     AnnotationKind.Masa -> month!!.start to month.end
                     else -> null
                 } ?: error("The interval could not be calculated for this date.")
                 val otherIntervals = if (kind == AnnotationKind.Rashi) {
-                    listOfNotNull(engine.rashiInterval(at, observer, index, solar = false)?.let { "Chandra" to it })
+                    RashiFocus.entries.filter { it != rashiFocus }.mapNotNull { focus ->
+                        val timing = when (focus) {
+                            RashiFocus.Solar -> engine.rashiInterval(at, observer, index, solar = true)
+                            RashiFocus.Lunar -> engine.rashiInterval(at, observer, index, solar = false)
+                            RashiFocus.Lagna -> null
+                        }
+                        timing?.let { focus.label to it }
+                    }
                 } else emptyList()
                 val frame = if (kind == AnnotationKind.Masa) ChartFrame(snapshot.moon, 0.57)
                     else catalog.frame(catalog.pattern(if (kind == AnnotationKind.Rashi) "rashi" else "nakshatra", index))
@@ -170,7 +184,7 @@ internal fun AstronomicalDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(when (kind) {
-                        AnnotationKind.Rashi -> "Surya in $title"
+                        AnnotationKind.Rashi -> "${rashiFocus.label} in $title"
                         AnnotationKind.Nakshatra -> "Chandra in $title"
                         else -> if (reckoning == MonthReckoning.Amanta) "New Moon to New Moon" else "Full Moon to Full Moon"
                     }, color = DetailGold, fontFamily = FontFamily.Serif, fontSize = 19.sp)
@@ -214,6 +228,9 @@ private fun IntervalRows(interval: Pair<ZonedDateTime, ZonedDateTime>, format: D
             Text(time.format(format), color = DetailIvory, fontSize = 15.sp)
         }
     }
+    val minutes = Duration.between(interval.first, interval.second).toMinutes()
+    Text("Duration · ${minutes / 1440}d ${(minutes % 1440) / 60}h ${minutes % 60}m",
+        color = DetailMuted, fontSize = 12.sp)
 }
 
 @Composable

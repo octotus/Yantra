@@ -175,6 +175,53 @@ class YantraCalendarEngine(
         return entry to exit
     }
 
+    /** Current or next passage of the ascendant through a sign, including midnight crossings. */
+    fun lagnaInterval(dateTime: ZonedDateTime, observer: Observer, targetIndex: Int): Pair<ZonedDateTime, ZonedDateTime>? {
+        fun indexAt(time: ZonedDateTime): Int? {
+            val celestial = astronomyEngine.compute(time, observer)
+            val ascendant = celestial.ascendantLongitude ?: return null
+            val longitude = if (celestial.longitudesAreSidereal) ascendant
+                else normalizeDegrees(ascendant - ayanamsa.approximateDegrees(celestial.julianDay))
+            return floor(longitude / 30.0).toInt().coerceIn(0, 11)
+        }
+        fun boundary(start: ZonedDateTime, end: ZonedDateTime, entering: Boolean): ZonedDateTime? {
+            var low = start
+            var high = end
+            while (Duration.between(low, high).seconds > 1) {
+                val middle = low.plusSeconds(Duration.between(low, high).seconds / 2)
+                val index = indexAt(middle) ?: return null
+                if ((index == targetIndex) == entering) high = middle else low = middle
+            }
+            return high
+        }
+        val current = indexAt(dateTime) ?: return null
+        var inside = dateTime
+        if (current != targetIndex) {
+            val limit = dateTime.plusHours(30)
+            while (indexAt(inside) != targetIndex) {
+                inside = inside.plusMinutes(1)
+                if (!inside.isBefore(limit) || indexAt(inside) == null) return null
+            }
+        }
+        var before = inside
+        val lowerLimit = inside.minusHours(30)
+        while (indexAt(before) == targetIndex) {
+            before = before.minusMinutes(1)
+            if (!before.isAfter(lowerLimit)) return null
+        }
+        if (indexAt(before) == null) return null
+        val start = boundary(before, before.plusMinutes(1), entering = true) ?: return null
+        var after = inside
+        val upperLimit = inside.plusHours(30)
+        while (indexAt(after) == targetIndex) {
+            after = after.plusMinutes(1)
+            if (!after.isBefore(upperLimit)) return null
+        }
+        if (indexAt(after) == null) return null
+        val end = boundary(after.minusMinutes(1), after, entering = false) ?: return null
+        return start to end
+    }
+
     private fun estimateLongitudeCrossing(
         dateTime: ZonedDateTime,
         observer: Observer,
