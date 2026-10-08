@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import dev.yantra.app.calendar.*
@@ -107,15 +108,10 @@ internal fun TodayScreen(
         Column(
             Modifier.fillMaxSize()
                 .background(Brush.verticalGradient(listOf(Color(0xFF292014), Color(0xFF100C08), Color(0xFF17100A))))
-                .safeDrawingPadding().verticalScroll(rememberScrollState()).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .safeDrawingPadding().verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("Today", color = todayGold, fontFamily = FontFamily.Serif,
-                    style = MaterialTheme.typography.headlineMedium)
-                TextButton(onClick = onDismiss) { Text("‹ Back", color = todayGold) }
-            }
             val data = details
             if (data == null) {
                 if (failed) Text("Today's details could not be calculated. Retrying shortly.", color = todayIvory)
@@ -126,7 +122,10 @@ internal fun TodayScreen(
                         letterSpacing = 2.sp, style = MaterialTheme.typography.labelLarge)
                     Text(data.at.format(DateTimeFormatter.ofPattern("d MMMM yyyy")),
                         color = todayIvory, fontFamily = FontFamily.Serif,
-                        style = MaterialTheme.typography.headlineMedium)
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = MaterialTheme.typography.headlineMedium.fontSize * 0.8f,
+                            lineHeight = MaterialTheme.typography.headlineMedium.lineHeight * 0.8f,
+                        ))
                     HorizontalDivider(color = todayGold.copy(alpha = 0.25f))
                     Text("${data.state.samvatsara.name} samvatsara", color = todayGold,
                         fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
@@ -145,7 +144,7 @@ internal fun TodayScreen(
                         }
                     }
                 }
-                TodaySection("Rāśi") {
+                TodaySection("Rāśi", inset = 14.dp, spacing = 8.dp) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         RashiTile("Solar", data.state.solarRashi, Modifier.weight(1f)) {
                             selectedRashi = RashiFocus.Solar to data
@@ -157,22 +156,29 @@ internal fun TodayScreen(
                             selectedRashi = RashiFocus.Lagna to data
                         }
                     }
-                    Text("Touch a sign to explore its chart and duration", color = todayGold.copy(alpha = 0.7f),
+                    Text("Tap a sign for its chart and duration", color = todayGold.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodySmall)
                 }
-                TodaySection("Nakṣatra") {
+                TodaySection {
                     Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Canvas(Modifier.size(72.dp).background(Color(0xFF302314), CircleShape)) {
+                        Canvas(Modifier.size(52.dp).background(Color(0xFF302314), CircleShape)) {
                             drawNakshatraSigil(data.state.nakshatra.index, center, size.minDimension * 0.68f, todayGold, sigilImages)
                         }
-                        Text(data.state.nakshatra.name, Modifier.weight(1f), color = todayIvory,
-                            fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineSmall)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Nakṣatra", color = todayGold, style = MaterialTheme.typography.labelLarge)
+                            Text(data.state.nakshatra.name, color = todayIvory,
+                                fontFamily = FontFamily.Serif, style = MaterialTheme.typography.titleLarge)
+                        }
                     }
                     TodayInterval(data.nakshatra)
                 }
-                Text("${location.label} · ${data.at.format(DateTimeFormatter.ofPattern("HH:mm z"))}",
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(details?.let { "${location.label} · ${it.at.format(DateTimeFormatter.ofPattern("HH:mm z"))}" }
+                    ?: location.label, Modifier.weight(1f),
                     color = todayGold.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onDismiss) { Text("‹ Back", color = todayGold) }
             }
         }
     }
@@ -198,15 +204,20 @@ internal fun TodayScreen(
 }
 
 @Composable
-private fun TodaySection(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+private fun TodaySection(
+    title: String? = null,
+    inset: Dp = 12.dp,
+    spacing: Dp = 6.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
         Modifier.fillMaxWidth()
             .background(Brush.linearGradient(listOf(Color(0xFF352719), Color(0xFF1C140D))), MaterialTheme.shapes.large)
-            .border(1.dp, todayGold.copy(alpha = 0.24f), MaterialTheme.shapes.large).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .border(1.dp, todayGold.copy(alpha = 0.24f), MaterialTheme.shapes.large).padding(inset),
+        verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
         title?.let { Text(it, color = todayGold, fontFamily = FontFamily.Serif,
-            style = MaterialTheme.typography.titleLarge) }
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp)) }
         content()
     }
 }
@@ -218,13 +229,13 @@ private fun RashiTile(label: String, sign: Segment?, modifier: Modifier, onClick
             .background(Color(0xFF100C08).copy(alpha = 0.45f))
             .clickable(enabled = sign != null, role = Role.Button,
                 onClickLabel = "View $label rashi chart and duration", onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 12.dp),
+            .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(label, color = todayGold, style = MaterialTheme.typography.labelLarge)
         Text(sign?.let { zodiacSymbols[it.index] } ?: "—", color = todayGold,
-            fontSize = 38.sp, textAlign = TextAlign.Center)
+            fontSize = 30.4.sp, lineHeight = 36.8.sp, textAlign = TextAlign.Center)
         Text(sign?.name ?: "Unavailable", color = todayIvory, textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyMedium)
     }
