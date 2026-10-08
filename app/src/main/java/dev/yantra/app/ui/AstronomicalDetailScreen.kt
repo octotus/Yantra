@@ -149,7 +149,7 @@ internal fun AstronomicalDetailScreen(
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding()) {
         val chartHeight = (maxHeight * 0.50f).coerceIn(240.dp, 580.dp)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = onDismiss, colors = buttonColors) { Text("‹ Back") }
                 Text(type, color = DetailMuted, fontSize = 13.sp, letterSpacing = 2.sp)

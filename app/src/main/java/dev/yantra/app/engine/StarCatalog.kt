@@ -33,9 +33,15 @@ class StarCatalog(val stars: List<StarRecord>, val patterns: List<StellarPattern
         val middle = reference((pattern.index + 0.5) * width)
         val center = coordinateCenter(listOf(coordinateCenter(selected), middle))
         val projection = StereographicProjection(center)
-        val context = listOf(reference((pattern.index - 0.55) * width), reference((pattern.index + 1.55) * width))
+        val contextReach = if (pattern.kind == "rashi") 0.30 else 0.55
+        val context = listOf(
+            reference((pattern.index - contextReach) * width),
+            reference((pattern.index + 1.0 + contextReach) * width),
+        )
         val points = (selected + context).mapNotNull(projection::project)
-        val extent = points.maxOf { max(abs(it.x), abs(it.y)) }.coerceAtLeast(0.22) * 1.22
+        val minimumExtent = if (pattern.kind == "rashi") 0.20 else 0.22
+        val margin = if (pattern.kind == "rashi") 1.10 else 1.22
+        val extent = points.maxOf { max(abs(it.x), abs(it.y)) }.coerceAtLeast(minimumExtent) * margin
         return ChartFrame(center, extent)
     }
 
